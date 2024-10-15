@@ -37,10 +37,12 @@
 #include <vector>
 #include <string>
 #include <filesystem>
+#include <Python.h>
 #include <thread>
 #include <d3d11.h>
 #include <dxgi.h>
 #include <stdexcept>
+#include <unordered_map>
 #include "..\..\include\kiero.h"
 #include "..\..\include\imgui.h"
 #include "..\..\include\imgui_impl_win32.h"
@@ -54,10 +56,7 @@ extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam
 typedef HRESULT(__stdcall* Present) (IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);   // For storing and calling the original present function
 typedef LRESULT(CALLBACK* WNDPROC)(HWND, UINT, WPARAM, LPARAM);                                     // For storing and calling the original WNDPROC function
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-void ExecuteUiMods();
-bool LoadUiMods();
 void CreateTestWindow();
-void UnloadMods();
 void CoreCleanup();
 BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reserved);
 DWORD WINAPI CoreMain(LPVOID unused_param);
@@ -68,6 +67,12 @@ void ProcessCustomInputs();
 void RenderUiElements();
 void ErrorMessageBox(const char* err_msg);
 void InfoMessageBox(const char* info_msg);
+void LoadPythonScript(std::string script_path);
+void LoadPythonScripts();
+void UnloadPythonScript(FILE* script_file);
+void UnloadPythonScripts();
+void RunPythonScripts();
+
 
 // ********************
 // * Global Variables *
@@ -89,11 +94,15 @@ static bool is_ui_initialized                              = false;
 ImGuiContext* mod_context                           = NULL;
 
 ImFont* custom_font;
+static const std::string mods_path = "uif_mods";
 static const std::string fonts_path = "uif_mods\\resources\\fonts\\";
+
+// Python Variables
+std::unordered_map<std::string, FILE*> scripts;
+bool python_initialized = false;
 
 // For Module Management
 static HMODULE core_module = NULL;
-bool mod_exiting = false;
 
 #pragma endregion
 
@@ -163,6 +172,11 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
         return EXIT_FAILURE;
     }
 
+    Py_Initialize();
+    //python_initialized = true;
+    //LoadPythonScripts();
+
+
     result = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&original_d3d11_present_func, (void*)hooked_d3d11_present_func);
     if (result != kiero::Status::Success)
     {
@@ -207,7 +221,6 @@ HRESULT __stdcall hooked_d3d11_present_func(IDXGISwapChain* swap_chain, UINT syn
 
 void CoreCleanup()
 {
-    mod_exiting = true;
 
     // Shutdown ImGui
     if(is_ui_initialized)
@@ -239,8 +252,18 @@ void CoreCleanup()
         d3d11_context->Release();
         d3d11_context = NULL;
     }
-
+    
     is_ui_initialized = false;
+
+    // Release Python interpreter and scripts
+    if(Py_IsInitialized()) 
+    {
+        if(Py_FinalizeEx())
+        {
+            ErrorMessageBox("Failed to cleanup python interpreter.");
+        }
+    }
+    //UnloadPythonScripts();
 
     // Unhook graphics API
     kiero::shutdown();
@@ -336,6 +359,15 @@ void RenderUiElements()
     // Execute all UI Mods
     CreateTestWindow();
 
+    // try
+    // {
+    //     RunPythonScripts();
+    // }
+    // catch (const std::exception& err)
+    // {
+    //     ErrorMessageBox(err.what());
+    // }
+
     ImGui::Render();
     d3d11_context->OMSetRenderTargets(1, &main_render_target_view, nullptr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
@@ -357,9 +389,8 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 void CreateTestWindow()
 {
-    ImGuiWindowFlags window_flags = ImGuiWindowFlags_None; // Put your flags for the window style here
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_None;
 
-    ImGui::SetCurrentContext(mod_context);
     ImGui::Begin("Module Template", nullptr, window_flags);                        
 
     // Text label
@@ -438,8 +469,105 @@ void ProcessCustomInputs()
     uint32_t is_pressed = 0x01;
     if(GetAsyncKeyState(VK_END) & is_pressed)
     {
-        InfoMessageBox("End Key Pressed");
+        InfoMessageBox("Cleaning up UiForge");
         CoreCleanup();
+    }
+}
+
+void LoadPythonScript(std::string script_path)
+{
+    FILE* script_file = fopen(script_path.c_str(), "rb");
+    if(!script_file) throw std::runtime_error(std::string("Error opening python script ") + script_path + ". Error: " + strerror(errno));
+    scripts[script_path] = script_file;
+}
+
+void LoadPythonScripts()
+{
+    for (const auto& file : std::filesystem::directory_iterator(mods_path))
+    {
+        if(std::filesystem::is_regular_file(file.path()) && file.path().extension() == ".py")
+        {
+            try
+            {
+                LoadPythonScript(std::filesystem::absolute(file.path()).string());
+            }
+            catch (const std::exception& err)
+            {
+                ErrorMessageBox(err.what());
+            }
+        }
+    }
+}
+
+void UnloadPythonScript(std::string script_name)
+{
+    // If a script with the script name exists...
+    if(scripts.find(script_name) != scripts.end())
+    {
+        fclose(scripts[script_name]);
+        scripts.erase(script_name);
+    }
+}
+
+void UnloadPythonScripts()
+{
+    for (auto& script : scripts)
+    {
+        UnloadPythonScript(script.first);
+    }
+}
+
+void RunPythonScripts()
+{
+
+    //ImGui::Begin("Debug");
+    for(auto& script : scripts)
+    {
+        // ImGui::Text((script_names[index] + ": " + std::to_string((uintptr_t)script_streams[index])).c_str());
+        std::string script_name = script.first;
+        FILE* script_fp = script.second;
+
+        // If the script is invalid, throw an error
+        if(!script_fp) 
+        {
+            throw std::runtime_error(std::string("Invalid script FILE*"));
+        }
+
+        // Run the script
+        int result = PyRun_SimpleFile(script_fp, script_name.c_str());
+        
+        // If the script failed or returned an error, handle it
+        if(result != 0 || PyErr_Occurred())
+        {
+            // Fetch the error from the Python interpreter
+            PyObject *err_type, *err_val, *err_traceback;
+            PyErr_Fetch(&err_type, &err_val, &err_traceback);
+            PyErr_NormalizeException(&err_type, &err_val, &err_traceback);
+
+            // Convert Python error information to a C++ exception message
+            std::string err_msg = "Error executing Python script ";
+            err_msg += script_name;
+
+            if (err_val) 
+            {
+                PyObject* err_str = PyObject_Str(err_val);
+                if (err_str) 
+                {
+                    err_msg += ": ";
+                    err_msg += PyUnicode_AsUTF8(err_str);
+                    Py_DECREF(err_str);
+                }
+            }
+
+            // Clear the Python error
+            PyErr_Clear();
+
+            // Remove script from list
+            UnloadPythonScript(script_name);
+
+            throw std::runtime_error(err_msg);
+        }
+        //ImGui::End();
     }
 }
 
