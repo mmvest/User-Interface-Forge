@@ -79,7 +79,6 @@ REM variables for the various linking and compiler needs
 set CSTD=/std:c++17
 
 REM Libraries to link based on the graphics API
-set PYTHON_LIBS=libs\python3.lib libs\python311.lib
 set LINK_D3D9="d3d9.lib"
 set LINK_D3D10="d3d10.lib d3dcompiler.lib"
 set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib
@@ -117,7 +116,7 @@ exit /b
 
 :d3d11
 echo Building Core...
-cl /EHsc /LD /I %INCLUDE_DIR% /I %INCLUDE_DIR%\python /Fe:%BIN_DIR%\uif_core.dll /Fo:%BIN_DIR%\uif_core.obj %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11% %PYTHON_LIBS%
+cl /EHsc /LD /I %INCLUDE_DIR% /I /Fe:%BIN_DIR%\uif_core.dll /Fo:%BIN_DIR%\uif_core.obj %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11%
 goto cleanup
 
 :d3d12
