@@ -79,6 +79,7 @@ REM variables for the various linking and compiler needs
 set CSTD=/std:c++17
 
 REM Libraries to link based on the graphics API
+set LINK_IMGUI=libs\imgui_directx11_1.91.2.lib
 set LINK_D3D9="d3d9.lib"
 set LINK_D3D10="d3d10.lib d3dcompiler.lib"
 set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib
@@ -89,7 +90,11 @@ set LINK_OPENGL=""
 REM Source files for each build
 set INJECTOR_UTIL_SRC="%SRC_DIR%\injector\injector_util.cpp"
 set INJECTOR_SRC=%SRC_DIR%\injector\uif_injector.cpp %BIN_DIR%\injector_util.obj
-set CORE_SRC=%SRC_DIR%\core\uif_core.cpp
+set CORE_SRC=%SRC_DIR%\core\uif_core.cpp %BIN_DIR%\*.obj
+set UI_MGR_SRC=%SRC_DIR%\core\ui_manager.cpp
+set CORE_UTIL_SRC=%SRC_DIR%\core\core_utils.cpp
+set SCRIPT_MGR_SRC=%SRC_DIR%\core\forgescript_manager.cpp
+set GRAPHICS_API_SRC=%SRC_DIR%\core\graphics_api.cpp
 
 REM Variables for building the injector (StartUiForge.exe)
 
@@ -115,8 +120,25 @@ REM TODO: Implement build for DirectX 10
 exit /b
 
 :d3d11
+echo Building Core Utils...
+cl /c /Fo:%BIN_DIR%\core_utils.obj %CORE_UTIL_SRC%
+echo(
+
+echo Building Script Manager...
+cl /c /Fo:%BIN_DIR%\forgescript_manager.obj %SCRIPT_MGR_SRC%
+echo(
+
+echo Building UI Manager...
+cl /c /Fo:%BIN_DIR%\ui_manager.obj %UI_MGR_SRC%
+echo(
+
+echo Building Graphics Api Manager...
+cl /EHsc /c /Fo:%BIN_DIR%\graphics_api.obj %GRAPHICS_API_SRC%
+echo(
+
 echo Building Core...
-cl /EHsc /LD /I %INCLUDE_DIR% /I /Fe:%BIN_DIR%\uif_core.dll /Fo:%BIN_DIR%\uif_core.obj %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11%
+cl /EHsc /LD /I %INCLUDE_DIR% /I /Fe:%BIN_DIR%\uif_core.dll %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11%
+echo(
 goto cleanup
 
 :d3d12
@@ -133,8 +155,10 @@ REM TODO: Implement build for OpenGL
 :injector
 echo Building injector utility...
 cl /EHsc /c /I %INCLUDE_DIR% /Fo:%BIN_DIR%\injector_util.obj %INJECTOR_UTIL_SRC%
+
 echo Building injector ^(StartUiForge.exe^)
 cl /EHsc /I %INCLUDE_DIR% /Fe:%BIN_DIR%\StartUiForge.exe /Fo:%BIN_DIR%\StartUiForge.obj %CSTD% %INJECTOR_SRC%
+
 goto cleanup
 
 :fonts
@@ -143,6 +167,7 @@ rc %RESOURCES_DIR%\fonts.rc
 :cleanup
 echo Cleaning up
 del %BIN_DIR%\*.obj
+del *.obj
 
 echo Build Complete!
 exit /b

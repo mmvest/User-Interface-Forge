@@ -3,12 +3,13 @@
 #include <string>
 
 #include "ui_manager.h"
-#include "..\..\include\imgui.h"
 #include "..\..\include\imgui_impl_win32.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-UiManager::UiManager()
+WNDPROC UiManager::original_wndproc_ = nullptr;
+
+UiManager::UiManager(HWND target_window) : target_window_(target_window)
 {
     InitializeImGui();
 };

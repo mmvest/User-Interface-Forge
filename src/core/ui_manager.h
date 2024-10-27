@@ -1,12 +1,11 @@
 #pragma once
 #include <Windows.h>
-#include "graphics_api.h"
 #include "..\..\include\imgui.h"
 
 class UiManager 
 {
     public:
-        UiManager();
+        UiManager(HWND target_window);
         ~UiManager();
 
         void InitializeImGui();

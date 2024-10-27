@@ -1,5 +1,5 @@
 #include <thread>
-#include <winuser.h>
+#include <windows.h>
 namespace CoreUtils
 {
     void ErrorMessageBox(const char* err_msg)
@@ -18,6 +18,7 @@ namespace CoreUtils
         if(GetAsyncKeyState(VK_END) & is_pressed)
         {
             InfoMessageBox("Cleaning up UiForge");
+            FreeLibrary(GetModuleHandleA(NULL)); // Fix this -- Its not actually freeing the library
         }
     }
 }

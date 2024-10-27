@@ -20,15 +20,14 @@
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2024-10-02 (version 0.1.1)
+ * @date    2024-10-02 (version 0.2.0)
+ *          2024-10-02 (version 0.1.1)
  *          2024-09-25 (version 0.1.0)
  * 
  * @todo Clean up code -- some of this stuff is rough
  * @todo Comment functions
  * @todo BUG: disappears when fullscreen/screen-resize
- * @todo close/free handles and imported libraries and other general cleanup
  * @todo create management window for enabling/disabling modules and getting debug info such as time elapsed to run each module, memory usage, etc.
- * @todo add ability to detach core and all loaded modules from target without crashing or closing the application
  */
 
 
@@ -44,10 +43,8 @@
 #include <stdexcept>
 #include <unordered_map>
 #include "..\..\include\kiero.h"
-#include "ui_manager.h"
 #include "graphics_api.h"
 #include "core_utils.h"
-#include "forgescript_manager.h"
 
 // *********************************
 // * Function Forward Declarations *
@@ -151,6 +148,7 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     // TODO: Maybe add a switch statement? Something here to choose which Graphics API
     graphics_api = D3D11GraphicsApi();
 
+    // TODO: Kiero won't work once we have multiple possible Graphics API as it assumes you are using a single API (if I remember correctly)
     result = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&graphics_api.original_function, graphics_api.HookedFunction);
     if (result != kiero::Status::Success)
     {
