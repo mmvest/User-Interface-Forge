@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "core_utils.h"
 #include "ui_manager.h"
 #include "..\..\include\imgui_impl_win32.h"
 
@@ -16,21 +17,7 @@ UiManager::UiManager(HWND target_window) : target_window_(target_window)
 
 UiManager::~UiManager()
 {
-    if(mod_context_)
-    {
-        ImGui_ImplWin32_Shutdown();
-        ImGui::DestroyContext(mod_context_);
-    }
-
-
-    if(original_wndproc_)
-    {
-        if(!SetWindowLongPtrW(target_window_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_wndproc_)))
-        {
-            std::string err_msg = std::string("Failed to restore original window procedure. Error: ") + std::to_string(GetLastError());
-            // TODO: Log error message
-        }
-    }
+    CleanupUiManager();
 }
 
 void UiManager::InitializeImGui() 
@@ -62,6 +49,25 @@ void UiManager::RenderUiElements()
     CreateTestWindow();
 
     ImGui::Render();
+}
+
+void UiManager::CleanupUiManager()
+{
+    if(mod_context_)
+    {
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext(mod_context_);
+    }
+
+
+    if(original_wndproc_)
+    {
+        if(!SetWindowLongPtrW(target_window_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_wndproc_)))
+        {
+            std::string err_msg = std::string("Failed to restore original window procedure. Error: ") + std::to_string(GetLastError());
+            // TODO: Log error message
+        }
+    }
 }
 
 LRESULT WINAPI UiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)

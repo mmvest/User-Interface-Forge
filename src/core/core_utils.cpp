@@ -1,7 +1,12 @@
 #include <thread>
 #include <windows.h>
+#include <string>
+
+extern void CleanupUiForge();   // From uif_core.cpp
+
 namespace CoreUtils
 {
+
     void ErrorMessageBox(const char* err_msg)
     {
         std::thread([err_msg] { MessageBoxA(nullptr, err_msg, "UiForge Error",  MB_OK | MB_ICONERROR); }).detach();
@@ -17,8 +22,7 @@ namespace CoreUtils
         uint32_t is_pressed = 0x01;
         if(GetAsyncKeyState(VK_END) & is_pressed)
         {
-            InfoMessageBox("Cleaning up UiForge");
-            FreeLibrary(GetModuleHandleA(NULL)); // Fix this -- Its not actually freeing the library
+            CleanupUiForge();
         }
     }
 }

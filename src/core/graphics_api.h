@@ -1,12 +1,18 @@
 #pragma once
 
-#include <functional>
-
 // DirectX 11
 #include <d3d11.h>
 #include <dxgi.h>
 
 #include "ui_manager.h"
+
+enum class GraphicsApiType
+{
+    DirectX11,
+    DirectX12,
+    Vulkan,
+    OpenGL
+};
 
 class IGraphicsApi
 {
@@ -19,13 +25,10 @@ class IGraphicsApi
         // virtual void NewFrame();
         // virtual void RenderDrawData();
         // virtual void SetRenderTarget();
-        // virtual void CleanupGraphicsApi(void* params);
+        virtual void CleanupGraphicsApi(void* params);
 
-        static void* original_function;
-
+        static void* OriginalFunction;
         static void* HookedFunction;
-
-    protected:
         static bool initialized;
         static UiManager* ui_manager;
 };
@@ -41,7 +44,7 @@ class D3D11GraphicsApi : public IGraphicsApi
         // void RenderDrawData() override;
         // void SetRenderTarget() override;
         static HRESULT __stdcall HookedPresent(IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);
-        static void CleanupGraphicsApi(void* params);
+        void CleanupGraphicsApi(void* params) override;
         typedef HRESULT(__stdcall* Present) (IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);
 
         ~D3D11GraphicsApi() override;

@@ -33,15 +33,9 @@
 
 
 #include <Windows.h>
-#include <fcntl.h>
-#include <vector>
 #include <string>
-#include <filesystem>
 #include <thread>
-#include <d3d11.h>
-#include <dxgi.h>
-#include <stdexcept>
-#include <unordered_map>
+#include <atomic>
 #include "..\..\include\kiero.h"
 #include "graphics_api.h"
 #include "core_utils.h"
@@ -51,37 +45,27 @@
 // *********************************
 BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reserved);
 DWORD WINAPI CoreMain(LPVOID unused_param);
-
-// For hooking
-typedef HRESULT(__stdcall* Present) (IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);   // For storing and calling the original present function
-HRESULT __stdcall HookedPresent(IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);
+void CleanupUiForge();
 
 // ********************
 // * Global Variables *
 // ********************
 
-#pragma region globals
-
 // For Kiero
 static const unsigned D3D11_PRESENT_FUNCTION_INDEX  = 8;
-
-// For UI
-IGraphicsApi graphics_api;
 
 // ImFont* custom_font;
 // static const std::string mods_path = "uif_mods";
 // static const std::string fonts_path = "uif_mods\\resources\\fonts\\";
 
-// For Module Management
-static HMODULE core_module = NULL;
-
-#pragma endregion
+// For cleanup
+static std::atomic<bool> is_initialized(false);
+HMODULE core_module_handle = NULL;
+IGraphicsApi* graphics_api;
 
 // ******************
 // * Main Functions *
 // ******************
-
-#pragma region main_funcs
 
 BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reserved)
 /**
@@ -100,7 +84,7 @@ BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reser
         {
             DisableThreadLibraryCalls(h_module);                    // No need for DLL thread attach/detach
 
-            core_module = h_module;
+            core_module_handle = h_module;
             HANDLE injected_main_thread = CreateThread( NULL,       // Default thread attributes
                                                         0,          // Default stack size
                                                         CoreMain,   // Function for thread to run
@@ -119,7 +103,7 @@ BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reser
         }
 
         case DLL_PROCESS_DETACH:
-            kiero::shutdown();
+            CleanupUiForge();
             break;
     }
     
@@ -146,21 +130,27 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
 
     // Based on configuration, choose the graphics api. For now, its just D3D11.
     // TODO: Maybe add a switch statement? Something here to choose which Graphics API
-    graphics_api = D3D11GraphicsApi();
+    graphics_api = new D3D11GraphicsApi();
 
     // TODO: Kiero won't work once we have multiple possible Graphics API as it assumes you are using a single API (if I remember correctly)
-    result = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&graphics_api.original_function, graphics_api.HookedFunction);
+    result = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&graphics_api->OriginalFunction, graphics_api->HookedFunction);
     if (result != kiero::Status::Success)
     {
         CoreUtils::ErrorMessageBox( std::string("Failed to hook graphics api \"present\" function. Kiero status: " + std::to_string(result) + ". (See Kiero github or source for more info)\n").c_str());
         return EXIT_FAILURE;
     }
 
+    is_initialized.store(true);
     return EXIT_SUCCESS;
 }
 
-
-
-#pragma endregion
-
-
+void CleanupUiForge()
+{
+    if(is_initialized.load())
+    {
+        is_initialized.store(false);
+        kiero::shutdown();
+        graphics_api->CleanupGraphicsApi(nullptr);
+        FreeLibrary(core_module_handle);
+    }
+}

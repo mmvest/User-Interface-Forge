@@ -3,15 +3,15 @@
 #include "graphics_api.h"
 #include "core_utils.h"
 
-// DirectX 11
-#include "..\..\include\imgui_impl_dx11.h"
-
-void*       IGraphicsApi::original_function     = nullptr;
+void*       IGraphicsApi::OriginalFunction     = nullptr;
 void*       IGraphicsApi::HookedFunction        = nullptr;
 bool        IGraphicsApi::initialized           = false;
 UiManager*  IGraphicsApi::ui_manager            = nullptr;
 
-// Initialize D3D11 static variables
+void IGraphicsApi::CleanupGraphicsApi(void* params){}
+
+// DirectX 11
+#include "..\..\include\imgui_impl_dx11.h"
 ID3D11Device*           D3D11GraphicsApi::d3d11_device              = nullptr;
 ID3D11DeviceContext*    D3D11GraphicsApi::d3d11_context             = nullptr;
 ID3D11RenderTargetView* D3D11GraphicsApi::main_render_target_view   = nullptr;
@@ -73,13 +73,17 @@ HRESULT __stdcall D3D11GraphicsApi::HookedPresent(IDXGISwapChain* swap_chain, UI
         {
             InitializeGraphicsApi((void *)swap_chain);
             ui_manager = new UiManager(target_window);
-            ImGui_ImplDX11_Init(d3d11_device, d3d11_context);
+
+            if(!ImGui_ImplDX11_Init(d3d11_device, d3d11_context))
+            {
+                throw std::runtime_error("Failed to initialize DirectX11 ImGui Implementation.");
+            }
         }
         catch (const std::exception& err)
         {
             CoreUtils::ErrorMessageBox(err.what());
             FreeLibrary(GetModuleHandleA(NULL));
-            return ((D3D11GraphicsApi::Present)original_function)(swap_chain, sync_interval, flags);
+            return ((D3D11GraphicsApi::Present)OriginalFunction)(swap_chain, sync_interval, flags);
         }
 
         initialized = true;
@@ -91,24 +95,28 @@ HRESULT __stdcall D3D11GraphicsApi::HookedPresent(IDXGISwapChain* swap_chain, UI
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
     CoreUtils::ProcessCustomInputs();  // Put this here so it will return straight into calling the original D3D11 function
-    return ((D3D11GraphicsApi::Present)original_function)(swap_chain, sync_interval, flags);
+    return ((D3D11GraphicsApi::Present)OriginalFunction)(swap_chain, sync_interval, flags);
 }
 
 void D3D11GraphicsApi::CleanupGraphicsApi(void* params)
 {
-    // Release DirectX resources
-    if (d3d11_context) {
-        d3d11_context->Release();
-        d3d11_context = nullptr;
-    }
+    ImGui_ImplDX11_Shutdown();
 
-    if (d3d11_device) {
+    ui_manager->~UiManager();
+
+    // Release DirectX resources
+    if (d3d11_device) 
+    {
         d3d11_device->Release();
         d3d11_device = nullptr;
     }
+
+    if (d3d11_context)
+    {
+        d3d11_context->Release();
+        d3d11_context = nullptr;
+    }
+    CoreUtils::InfoMessageBox("Mod cleaned up");    // Don't delete this -- for some reason cleanup breaks if you do TODO: FIGURE OUT WHY I NEED THIS AND HOW TO FIX IT
 }   
 
-D3D11GraphicsApi::~D3D11GraphicsApi()
-{
-    CleanupGraphicsApi(nullptr);
-}
+D3D11GraphicsApi::~D3D11GraphicsApi(){}
