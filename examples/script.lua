@@ -1,3 +1,12 @@
-print("Hello from Lua!")
+local imgui = require("..\\bin\\imgui_lua_bindings")
 
-number = 42
+-- Start a new ImGui frame
+imgui.NewFrame()
+
+-- Display a window
+imgui.Begin("Demo Window")
+imgui.Text("Hello from Lua with ImGui!")
+imgui.End()
+
+-- Render the ImGui frame
+imgui.Render()
