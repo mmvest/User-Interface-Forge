@@ -5,7 +5,7 @@ setlocal
 :: Description:     This script will build UiForge.dll for you as well as
 ::                  StartUiForge.exe.
 ::
-:: Usage:           build_uiforge.bat <graphics_api> <architecture>
+:: Usage:           build_uiforge.bat <architecture> <graphics_api>
 ::
 :: Example:         build_uiforge.bat d3d11 64
 ::
@@ -16,8 +16,12 @@ setlocal
 ::                  vcvars64.bat (VS2022 Command Prompt)
 ::                  Graphics API of choice installed/downloaded and added to your lib/includes path
 ::
-:: Version:         0.2.0 
-:: Changelog:       0.2.0:  - Cleaned up script by removing unnecessary bloat in variables and build commands   (2024-10-02)
+:: Version:         0.3.0 
+:: Changelog:       0.3.0   - Removed options for DirectX9 and DirectX10 -- I don't plan to support them        (2024-11-11)
+::                          - Swapped Architecture and Graphics API argument positions so that it will be       (2024-11-11)
+::                            consitent with the injector argument list.
+::                          - Removed an option to build a test font resource                                   (2024-11-11)
+::                  0.2.0:  - Cleaned up script by removing unnecessary bloat in variables and build commands   (2024-10-02)
 ::                          - No longer build imgui, kiero, or minhook -- libraries are included instead        (2024-10-02)
 ::                          - Changed to accomodate new directory layout                                        (2024-10-02)
 ::                          - Now includes build for fonts resourcce                                            (2024-10-02)
@@ -29,8 +33,8 @@ setlocal
 ::
 ::======================================================================================================
 
-set graphics_api=%1
-set architecture=%2
+set architecture=%1
+set graphics_api=%2
 set debug=%3
 
 set "PRINT_USAGE="
@@ -41,7 +45,7 @@ if defined PRINT_USAGE (
     echo Usage: %~nx0 ^<graphics_api^> ^<architecture^>
     echo ---------------------------------------------------------------------------------------------------
     echo:
-    echo    graphics_api        Which graphics api to compile for. One of d3d9, d3d10, d3d11, d3d12, vulkan, opengl.
+    echo    graphics_api        Which graphics api to compile for. One of d3d11, d3d12, vulkan, opengl.
     echo:
     echo    architecture        Which architecture to use. Either 32 or 64. Defaults to 64
     echo:
@@ -80,8 +84,6 @@ set CSTD=/std:c++17
 
 REM Libraries to link based on the graphics API
 set LINK_IMGUI=libs\imgui_directx11_1.91.2.lib
-set LINK_D3D9="d3d9.lib"
-set LINK_D3D10="d3d10.lib d3dcompiler.lib"
 set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib
 set LINK_D3D12="d3d12.lib d3dcompiler.lib dxgi.lib"
 set LINK_VULKAN=""
@@ -111,14 +113,6 @@ goto %graphics_api%
 
 REM Add 32-bit builds when I get the chance
 
-:d3d9
-REM TODO: Implement build for DirectX 9
-exit /b
-
-:d3d10
-REM TODO: Implement build for DirectX 10
-exit /b
-
 :d3d11
 echo Building Core Utils...
 cl /c /Fo:%BIN_DIR%\core_utils.obj %CORE_UTIL_SRC%
@@ -138,6 +132,7 @@ echo(
 
 echo Building Core...
 cl /EHsc /LD /I %INCLUDE_DIR% /I /Fe:%BIN_DIR%\uif_core.dll %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11%
+move /Y uif_core.dll .\bin\uif_core.dll
 echo(
 goto cleanup
 
@@ -160,9 +155,6 @@ echo Building injector ^(StartUiForge.exe^)
 cl /EHsc /I %INCLUDE_DIR% /Fe:%BIN_DIR%\StartUiForge.exe /Fo:%BIN_DIR%\StartUiForge.obj %CSTD% %INJECTOR_SRC%
 
 goto cleanup
-
-:fonts
-rc %RESOURCES_DIR%\fonts.rc
 
 :cleanup
 echo Cleaning up

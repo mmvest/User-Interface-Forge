@@ -1,6 +1,6 @@
 /**
  * @file uif_injector.cpp
- * @version 0.1.1
+ * @version 0.1.2
  * @brief Entry point for UiForge. Injects the uif_core.dll into a specified process with the desired configuration.
  * 
  * This application allows the user to inject the uif_core.dll into a target process. The user can specify parameters, 
@@ -18,7 +18,7 @@
  * @warning You use this module at your own risk. You are responsible for how you use this code.
  *          I highly recommend keeping this module very far away from any anti-cheats.
  * 			AV software might flag this as a virus/malware. This is because the code uses a
- * 			very classic and simple process injection technique, and not being very sneaky
+ * 			very classic and simple process injection technique, and is not being very sneaky
  * 			about it either. Go ahead and look over the code though -- its not malicious.
  * 
  * @author mmvest (wereox)
@@ -49,11 +49,10 @@ L"  <bitness>         Specifies the architecture of the application.\n" \
 L"                    Must be either \"32\" for a 32-bit target or \"64\" for a 64-bit target.\n" \
 L"\n" \
 L"  <graphics_api>    Specifies the graphics API to use. Valid options are:\n" \
-L"                    - \"d3d9\"\n" \
-L"                    - \"d3d10\"\n" \
 L"                    - \"d3d11\"\n" \
 L"                    - \"d3d12\"\n" \
 L"                    - \"vulkan\"\n" \
+L"                    - \"opengl\"\n" \
 L"\n" \
 L"  <dll_file1>, <dll_file2>, ..., <dll_fileN>\n" \
 L"                    Optional: List of additional DLL files to load.\n" \

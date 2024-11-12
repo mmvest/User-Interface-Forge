@@ -1,8 +1,9 @@
 #include <thread>
 #include <windows.h>
 #include <string>
+#include <atomic>
 
-extern void CleanupUiForge();   // From uif_core.cpp
+extern std::atomic<bool> needs_cleanup;   // From uif_core.cpp
 
 namespace CoreUtils
 {
@@ -14,7 +15,7 @@ namespace CoreUtils
 
     void InfoMessageBox(const char* info_msg)
     {
-        std::thread([info_msg] { MessageBoxA(nullptr, info_msg, "UiForge message",  MB_OK); }).detach();
+        std::thread([info_msg] { MessageBoxA(nullptr, info_msg, "UiForge Message",  MB_OK); }).detach();
     }
 
     void ProcessCustomInputs()
@@ -22,7 +23,7 @@ namespace CoreUtils
         uint32_t is_pressed = 0x01;
         if(GetAsyncKeyState(VK_END) & is_pressed)
         {
-            CleanupUiForge();
+            needs_cleanup = true;
         }
     }
 }

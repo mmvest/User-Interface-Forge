@@ -19,18 +19,19 @@ class IGraphicsApi
     public:
         virtual ~IGraphicsApi() {}
 
-        // Perhaps use these in the case that they can help make a more generalized solution
-        //virtual void InitializeGraphicsApi(void* params);
-        // virtual bool InitializeImGuiImpl();
-        // virtual void NewFrame();
-        // virtual void RenderDrawData();
-        // virtual void SetRenderTarget();
-        virtual void CleanupGraphicsApi(void* params);
+        
+        static void (*InitializeGraphicsApi)(void* params);
+        static bool (*InitializeImGuiImpl)();
+        static void (*NewFrame)();
+        static void (*Render)();
+        static void (*OnGraphicsApiInvoke)(void* params);
+        static void (*ShutdownImGuiImpl)();
+        virtual void Cleanup(void* params);
 
-        static void* OriginalFunction;
-        static void* HookedFunction;
-        static bool initialized;
-        static UiManager* ui_manager;
+        static void* OriginalFunction;  // Note the naming convention on the following two variables don't match my normal convention.
+        static void* HookedFunction;    // This is because I am treating these variables like functions and thus use function naming convention.
+        static bool  initialized;
+        static HWND  target_window;
 };
 
 class D3D11GraphicsApi : public IGraphicsApi
@@ -38,23 +39,22 @@ class D3D11GraphicsApi : public IGraphicsApi
     public:
         D3D11GraphicsApi();
 
-        static void InitializeGraphicsApi(void* swap_chain);
-        // bool InitializeImGuiImpl() override;
-        // void NewFrame() override;
-        // void RenderDrawData() override;
-        // void SetRenderTarget() override;
+        static void InitializeApi(void* swap_chain);
+        static bool InitializeImGui();
+        static void NewFrame();
+        static void Render();
         static HRESULT __stdcall HookedPresent(IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);
-        void CleanupGraphicsApi(void* params) override;
+        static void ShutdownImGuiImpl();
+        void Cleanup(void* params = nullptr) override;
         typedef HRESULT(__stdcall* Present) (IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);
 
         ~D3D11GraphicsApi() override;
 
     private:
-        static ID3D11Device* d3d11_device;
-        static ID3D11DeviceContext* d3d11_context;
-        static ID3D11RenderTargetView* main_render_target_view;
-        static HWND target_window;
-        static D3D11GraphicsApi* instance;
+        static ID3D11Device*            d3d11_device;
+        static ID3D11DeviceContext*     d3d11_context;
+        static ID3D11RenderTargetView*  main_render_target_view;
+        static D3D11GraphicsApi*        instance;
         
 };
 
@@ -68,7 +68,7 @@ class D3D12GraphicsApi : public IGraphicsApi
         // void NewFrame() override;
         // void RenderDrawData() override;
         // void SetRenderTarget() override;
-        // void CleanupGraphicsApi(void* params) override;
+        // void Cleanup(void* params) override;
 
         ~D3D12GraphicsApi();
 };
@@ -83,7 +83,7 @@ class VulkanGraphicsApi : public IGraphicsApi
         // void NewFrame() override;
         // void RenderDrawData() override;
         // void SetRenderTarget() override;
-        // void CleanupGraphicsApi(void* params) override;
+        // void Cleanup(void* params) override;
 
         ~VulkanGraphicsApi();
 };
