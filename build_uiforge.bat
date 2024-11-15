@@ -16,8 +16,9 @@ setlocal
 ::                  vcvars64.bat (VS2022 Command Prompt)
 ::                  Graphics API of choice installed/downloaded and added to your lib/includes path
 ::
-:: Version:         0.3.0 
-:: Changelog:       0.3.0   - Removed options for DirectX9 and DirectX10 -- I don't plan to support them        (2024-11-11)
+:: Version:         0.3.1 
+:: Changelog:       0.3.1   - Support for building with Lua and other small changes
+::                  0.3.0   - Removed options for DirectX9 and DirectX10 -- I don't plan to support them        (2024-11-11)
 ::                          - Swapped Architecture and Graphics API argument positions so that it will be       (2024-11-11)
 ::                            consitent with the injector argument list.
 ::                          - Removed an option to build a test font resource                                   (2024-11-11)
@@ -84,8 +85,9 @@ set CSTD=/std:c++17
 
 REM Libraries to link based on the graphics API
 set LINK_IMGUI=libs\imgui_directx11_1.91.2.lib
+set LINK_LUA=libs\lua.lib
 set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib
-set LINK_D3D12="d3d12.lib d3dcompiler.lib dxgi.lib"
+set LINK_D3D12=d3d12.lib d3dcompiler.lib dxgi.lib
 set LINK_VULKAN=""
 set LINK_OPENGL=""
 
@@ -119,7 +121,7 @@ cl /c /Fo:%BIN_DIR%\core_utils.obj %CORE_UTIL_SRC%
 echo(
 
 echo Building Script Manager...
-cl /c /Fo:%BIN_DIR%\forgescript_manager.obj %SCRIPT_MGR_SRC%
+cl /EHsc /c /Fo:%BIN_DIR%\forgescript_manager.obj %CSTD% %SCRIPT_MGR_SRC%
 echo(
 
 echo Building UI Manager...
@@ -131,7 +133,7 @@ cl /EHsc /c /Fo:%BIN_DIR%\graphics_api.obj %GRAPHICS_API_SRC%
 echo(
 
 echo Building Core...
-cl /EHsc /LD /I %INCLUDE_DIR% /I /Fe:%BIN_DIR%\uif_core.dll %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11%
+cl /EHsc /LD /I %INCLUDE_DIR% /I /Fe:%BIN_DIR%\uif_core.dll %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11% %LINK_LUA%
 move /Y uif_core.dll .\bin\uif_core.dll
 echo(
 goto cleanup

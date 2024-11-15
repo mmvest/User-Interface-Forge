@@ -3,7 +3,9 @@
 #include "graphics_api.h"
 #include "core_utils.h"
 
-// IGraphics API
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                             IGraphicsApi Class                            ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
 void    IGraphicsApi::Cleanup(void* params){}
 void    (*IGraphicsApi::InitializeGraphicsApi)(void*)   = nullptr;
 bool    (*IGraphicsApi::InitializeImGuiImpl)()          = nullptr;
@@ -16,7 +18,9 @@ void*   IGraphicsApi::HookedFunction                    = nullptr;
 HWND    IGraphicsApi::target_window                     = nullptr;
 bool    IGraphicsApi::initialized                       = false;
 
-// DirectX 11
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                           D3D11GraphicsApi Class                          ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
 #include "..\..\include\imgui_impl_dx11.h"
 ID3D11Device*           D3D11GraphicsApi::d3d11_device            = nullptr;
 ID3D11DeviceContext*    D3D11GraphicsApi::d3d11_context           = nullptr;
@@ -135,3 +139,17 @@ D3D11GraphicsApi::~D3D11GraphicsApi()
 {
     Cleanup(nullptr);
 }
+
+// TODO: Implement the rest of the classes
+
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                           D3D12GraphicsApi Class                          ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                          VulkanGraphicsApi Class                          ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                          OpenGLGraphicsApi Class                          ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝

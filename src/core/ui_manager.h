@@ -1,6 +1,7 @@
 #pragma once
 #include <Windows.h>
 #include "..\..\include\imgui.h"
+#include "forgescript_manager.h"
 
 class UiManager 
 {
@@ -9,7 +10,7 @@ class UiManager
         ~UiManager();
 
         void InitializeImGui();
-        void RenderUiElements();
+        void RenderUiElements(ForgeScriptManager& script_manager);
         void CleanupUiManager();
         void CreateTestWindow();
 

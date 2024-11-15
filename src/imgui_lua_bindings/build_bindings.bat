@@ -10,13 +10,6 @@ set OUTPUT_LIB=..\..\libs\%MODULE_NAME%.lib
 
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
 
-echo Generating wrapper with SWIG...
-swig -c++ -lua -o %WRAPPER_FILE% %MODULE_NAME%.i
-if %errorlevel% neq 0 (
-    echo SWIG failed to generate wrapper.
-    goto cleanup
-)
-
 echo Compiling DLL with MSVC...
 cl /LD /I%INCLUDE_PATH% %WRAPPER_FILE% /link "..\..\libs\lua.lib" "..\..\libs\imgui_directx11_1.91.2.lib" /out:%OUTPUT_DLL% /IMPLIB:%OUTPUT_LIB%
 if %errorlevel% neq 0 (

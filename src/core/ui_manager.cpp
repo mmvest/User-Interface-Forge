@@ -40,13 +40,14 @@ void UiManager::InitializeImGui()
     if(!ImGui_ImplWin32_Init(target_window_)) throw std::runtime_error("Unable to initialize ImGui Win32 Implementation.");
 }
 
-void UiManager::RenderUiElements()
+void UiManager::RenderUiElements(ForgeScriptManager& script_manager)
 {
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     
     // Execute all UI Mods
-    CreateTestWindow();
+    // CreateTestWindow();
+    script_manager.RunScripts();
 
     ImGui::Render();
 }

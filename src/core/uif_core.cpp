@@ -1,6 +1,6 @@
 /**
  * @file uif_core.cpp
- * @version 0.2.2
+ * @version 0.2.3
  * @brief DLL for injecting into a target process to hook graphics API and display ImGUI windows.
  * 
  * This file defines a dynamic-link library (DLL) that is designed to be injected into a target 
@@ -20,7 +20,8 @@
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2024-11-12 (version 0.2.2)
+ * @date    2024-11-15 (version 0.2.3)
+ *          2024-11-12 (version 0.2.2)
  *          2024-10-28 (version 0.2.1)
  *          2024-10-02 (version 0.2.0)
  *          2024-10-02 (version 0.1.1)
@@ -42,6 +43,7 @@
 #include "..\..\include\kiero.h"
 #include "graphics_api.h"
 #include "core_utils.h"
+#include "forgescript_manager.h"
 
 // *********************************
 // * Function Forward Declarations *
@@ -62,6 +64,7 @@ kiero::Status::Enum kiero_is_bound = kiero::Status::UnknownError;               
 
 IGraphicsApi* graphics_api;
 UiManager* ui_manager;
+ForgeScriptManager* script_manager;
 
 // For cleanup
 std::atomic<HMODULE> core_module_handle(NULL);
@@ -135,6 +138,17 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     graphics_api = new D3D11GraphicsApi();
     graphics_api->OnGraphicsApiInvoke = OnGraphicsApiInvoke;    // We could probably move this to the constructor
 
+    // Load all mods
+    try
+    {
+        script_manager = new ForgeScriptManager("uif_mods");
+    }
+    catch(const std::exception& err)
+    {
+        CoreUtils::ErrorMessageBox(err.what());
+        return EXIT_FAILURE;
+    }
+
     // TODO: Kiero won't work once we have multiple possible Graphics API as it assumes you are using a single API (if I remember correctly)
     kiero_is_bound = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&graphics_api->OriginalFunction, graphics_api->HookedFunction);
     if (kiero_is_bound != kiero::Status::Success)
@@ -143,6 +157,7 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
         return EXIT_FAILURE;
     }
 
+    CoreUtils::InfoMessageBox("UiForge Started!");
     return EXIT_SUCCESS;
 }
 
@@ -161,6 +176,10 @@ void OnGraphicsApiInvoke(void* params)
             graphics_api->InitializeGraphicsApi(params);
             ui_manager = new UiManager(graphics_api->target_window);
 
+            // Make context into lua global so scripts can access it
+            lua_pushlightuserdata(script_manager->uif_lua_state, ui_manager->mod_context_);
+            lua_setglobal(script_manager->uif_lua_state, "ModContext");
+
             if(!graphics_api->InitializeImGuiImpl())
             {
                 throw std::runtime_error("Failed to initialize Graphics API ImGui Implementation.");
@@ -177,7 +196,7 @@ void OnGraphicsApiInvoke(void* params)
     }
 
     graphics_api->NewFrame();
-    ui_manager->RenderUiElements();
+    ui_manager->RenderUiElements(*script_manager);
     graphics_api->Render();
 
     CoreUtils::ProcessCustomInputs();  // Put this here so it will return straight into calling the original Graphics API function
@@ -199,6 +218,12 @@ void CleanupUiForge()
     {
         std::thread([]()
         { 
+            if(script_manager)
+            {
+                delete script_manager;
+                script_manager = nullptr;
+            }
+
             if(graphics_api) graphics_api->ShutdownImGuiImpl();
 
             if(ui_manager)
@@ -216,6 +241,7 @@ void CleanupUiForge()
         }).detach();
     }
 
+    CoreUtils::InfoMessageBox("UiForge Cleaned Up!");
     FreeLibrary(core_module_handle);
     return;
 }
