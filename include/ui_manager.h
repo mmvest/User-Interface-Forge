@@ -1,6 +1,6 @@
 #pragma once
 #include <Windows.h>
-#include "..\..\include\imgui.h"
+#include "imgui.h"
 #include "forgescript_manager.h"
 
 class UiManager 

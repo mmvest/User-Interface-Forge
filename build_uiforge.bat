@@ -1,23 +1,26 @@
 @echo off
 setlocal
+
 ::======================================================================================================
 :: File:            build_uiforge.bat
-:: Description:     This script will build UiForge.dll for you as well as
-::                  StartUiForge.exe.
+:: Description:     Builds UiForge, including the injector, Lua bindings, and core, with all graphics APIs.
+::                  Simplified to support 64-bit builds. Places UiForge.exe in the working directory.
 ::
-:: Usage:           build_uiforge.bat <architecture> <graphics_api>
+:: Usage:           build_uiforge.bat
 ::
-:: Example:         build_uiforge.bat d3d11 64
+:: Example:         build_uiforge.bat
 ::
 :: Author:          mmvest (wereox)
 :: Date:            2024-09-26
 ::
-:: Requirements:    VS2022
-::                  vcvars64.bat (VS2022 Command Prompt)
-::                  Graphics API of choice installed/downloaded and added to your lib/includes path
 ::
-:: Version:         0.3.1 
-:: Changelog:       0.3.1   - Support for building with Lua and other small changes
+:: Version:         0.4.1 
+:: Changelog:       0.4.1   - Changed the build so that its much more straightforward                           (2024-11-25)
+::                  0.4.0   - Removed 32-bit "support", only builds for 64-bit                                  (2024-11-24)
+::                          - Renamed StartUiForge.exe to UiForge.exe
+::                          - Simplified logic and arguments for maintainability
+::                          - Removed debug flag support
+::                  0.3.1   - Support for building with Lua and other small changes
 ::                  0.3.0   - Removed options for DirectX9 and DirectX10 -- I don't plan to support them        (2024-11-11)
 ::                          - Swapped Architecture and Graphics API argument positions so that it will be       (2024-11-11)
 ::                            consitent with the injector argument list.
@@ -28,142 +31,65 @@ setlocal
 ::                          - Now includes build for fonts resourcce                                            (2024-10-02)
 ::                  0.1.0:  - Initial rough draft version.                                                      (2024-09-26)
 ::
-:: Notes:           I plan to add 32-bit support and support for more graphics APIs in the future.
-::                  I have already done a lot of the ground work to support 32-bit and other APIs
-::                  but until uif_core.cpp supports it, only the DirectX 11 64-bit build will work. 
+:: Notes:           Only DirectX 11 is fully supported at this time.
+:: Requirements:    Visual Studio 2022 (vcvars64.bat), DirectX 11 SDK, Lua 
 ::
 ::======================================================================================================
 
-set architecture=%1
-set graphics_api=%2
-set debug=%3
-
-set "PRINT_USAGE="
-if "%graphics_api%"=="" set PRINT_USAGE=1
-if "%graphics_api%"=="help" set PRINT_USAGE=1
-if defined PRINT_USAGE (
-    echo:
-    echo Usage: %~nx0 ^<graphics_api^> ^<architecture^>
-    echo ---------------------------------------------------------------------------------------------------
-    echo:
-    echo    graphics_api        Which graphics api to compile for. One of d3d11, d3d12, vulkan, opengl.
-    echo:
-    echo    architecture        Which architecture to use. Either 32 or 64. Defaults to 64
-    echo:
-    echo    help                Display this usage message
-    echo:
-    pause
-    exit /b
-)
-
+:: Set directories
 set CWD=%~dp0
 set SRC_DIR=%CWD%src
 set BIN_DIR=%CWD%bin
-set LIBS_DIR=%CWD%libs
+set OBJ_DIR_INJECTOR=%BIN_DIR%\injector
+set OBJ_DIR_BINDINGS=%BIN_DIR%\bindings
+set OBJ_DIR_CORE=%BIN_DIR%\core
 set INCLUDE_DIR=%CWD%include
+set LIBS_DIR=%CWD%libs
 
-REM determine whether to compile for 32 or 64-bit
-if "%architecture%"=="32" (
-    set VCVAR=vcvars32.bat
-) else (
-    set VCVAR=vcvars64.bat
-)
-
-REM determine whether to add _DEBUG preprocessor value
-if "%debug%"=="-d" (
-    set "DEBUG_FLAG=/D_DEBUGPRINT"
-) else (
-    set "DEBUG_FLAG="
-)
-
-
-REM RUN_VCVARS can be used to open VS2022 command prompt -- either 32 or 64-bit
-set RUN_VCVARS="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\%VCVAR%"
-
-REM variables for the various linking and compiler needs
 set CSTD=/std:c++17
 
-REM Libraries to link based on the graphics API
-set LINK_IMGUI=libs\imgui_directx11_1.91.2.lib
-set LINK_LUA=libs\lua.lib
+:: Graphics API linking options
 set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib
-set LINK_D3D12=d3d12.lib d3dcompiler.lib dxgi.lib
-set LINK_VULKAN=""
-set LINK_OPENGL=""
+set LINK_GRAPHICS=%LINK_D3D11%
 
-REM Source files for each build
-set INJECTOR_UTIL_SRC="%SRC_DIR%\injector\injector_util.cpp"
-set INJECTOR_SRC=%SRC_DIR%\injector\uif_injector.cpp %BIN_DIR%\injector_util.obj
-set CORE_SRC=%SRC_DIR%\core\uif_core.cpp %BIN_DIR%\*.obj
-set UI_MGR_SRC=%SRC_DIR%\core\ui_manager.cpp
-set CORE_UTIL_SRC=%SRC_DIR%\core\core_utils.cpp
-set SCRIPT_MGR_SRC=%SRC_DIR%\core\forgescript_manager.cpp
-set GRAPHICS_API_SRC=%SRC_DIR%\core\graphics_api.cpp
+:: Initialize build environment
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
 
-REM Variables for building the injector (StartUiForge.exe)
+echo Building injector utility
+if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
+cl /EHsc /c /I %INCLUDE_DIR% /Fo:%OBJ_DIR_INJECTOR%\injector_util.obj %CSTD% %SRC_DIR%\injector\injector_util.cpp
+if errorlevel 1 goto error
 
-set BUILD_INJECTOR="cl /EHsc /I %INCLUDE_DIR% /Fe:%BIN_DIR%\StartUiForge.exe /Fo:%BIN_DIR%\StartUiForge.obj %CSTD% %INJECTOR_SRC%"
+echo Building injector (UiForge.exe)
+cl /EHsc /I %INCLUDE_DIR% /Fe:%CWD%UiForge.exe /Fo:%OBJ_DIR_INJECTOR%\injector.obj %CSTD% %SRC_DIR%\injector\uif_injector.cpp %OBJ_DIR_INJECTOR%\injector_util.obj
+if errorlevel 1 goto error
 
-REM Check if BIN_DIR directory exists. If it does not, then make it.
-if not exist %BIN_DIR% (
-    mkdir %BIN_DIR%
-)
+echo Building Lua bindings
+if not exist %OBJ_DIR_BINDINGS% mkdir %OBJ_DIR_BINDINGS%
+cl /EHsc /LD /I %INCLUDE_DIR% /Fo:%OBJ_DIR_BINDINGS%\imgui_lua_bindings.obj /Fe:%BIN_DIR%\imgui_lua_bindings.dll %CSTD% %SRC_DIR%\imgui_lua_bindings\imgui_lua_bindings.cpp /link %LIBS_DIR%\lua.lib %LIBS_DIR%\imgui_directx11_1.91.2.lib
+if errorlevel 1 goto error
 
-REM vcvars initializes the vs2022 terminal
-call %RUN_VCVARS%
-goto %graphics_api%
-
-REM Add 32-bit builds when I get the chance
-
-:d3d11
-echo Building Core Utils...
-cl /c /Fo:%BIN_DIR%\core_utils.obj %CORE_UTIL_SRC%
-echo(
-
-echo Building Script Manager...
-cl /EHsc /c /Fo:%BIN_DIR%\forgescript_manager.obj %CSTD% %SCRIPT_MGR_SRC%
-echo(
-
-echo Building UI Manager...
-cl /c /Fo:%BIN_DIR%\ui_manager.obj %UI_MGR_SRC%
-echo(
-
-echo Building Graphics Api Manager...
-cl /EHsc /c /Fo:%BIN_DIR%\graphics_api.obj %GRAPHICS_API_SRC%
-echo(
-
-echo Building Core...
-cl /EHsc /LD /I %INCLUDE_DIR% /I /Fe:%BIN_DIR%\uif_core.dll %DEBUG_FLAG% %CSTD% %CORE_SRC% /link %LINK_D3D11% %LINK_LUA%
-move /Y uif_core.dll .\bin\uif_core.dll
-echo(
-goto cleanup
-
-:d3d12
-REM TODO: Implement build for DirectX 12
-exit /b
-
-:vulkan
-REM TODO: Implement build for Vulkan
-exit /b
-
-:opengl
-REM TODO: Implement build for OpenGL
-
-:injector
-echo Building injector utility...
-cl /EHsc /c /I %INCLUDE_DIR% /Fo:%BIN_DIR%\injector_util.obj %INJECTOR_UTIL_SRC%
-
-echo Building injector ^(StartUiForge.exe^)
-cl /EHsc /I %INCLUDE_DIR% /Fe:%BIN_DIR%\StartUiForge.exe /Fo:%BIN_DIR%\StartUiForge.obj %CSTD% %INJECTOR_SRC%
+echo Building core
+cl /EHsc /LD /I %INCLUDE_DIR% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LIBS_DIR%\lua.lib
+if errorlevel 1 goto error  
 
 goto cleanup
+
+:error
+echo ERROR: Build failed.
 
 :cleanup
 echo Cleaning up
-del %BIN_DIR%\*.obj
-del *.obj
+:: Remember, the following commands quietly execute and will not display any output
+if exist %BIN_DIR%\bindings rmdir /S /Q %BIN_DIR%\bindings
+if exist %BIN_DIR%\core rmdir /S /Q %BIN_DIR%\core
+if exist %BIN_DIR%\injector rmdir /S /Q %BIN_DIR%\injector
 
-echo Build Complete!
-exit /b
+:: Clean other build artifacts if we have any for some reason
+:: >nul redirects stdout to nul, suppressing output
+:: 2>&1 redirects stderr to stdout, which in this case will redirect to nul, thus getting rid of any terminal output for these commands
+del %BIN_DIR%\*.exp >nul 2>&1
+del %BIN_DIR%\*.lib >nul 2>&1
+del *.obj >nul 2>&1
 
-endlocal
+exit /b 0

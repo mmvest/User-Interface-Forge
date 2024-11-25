@@ -1,6 +1,6 @@
 /**
  * @file uif_injector.cpp
- * @version 0.1.2
+ * @version 0.2.0
  * @brief Entry point for UiForge. Injects the uif_core.dll into a specified process with the desired configuration.
  * 
  * This application allows the user to inject the uif_core.dll into a target process. The user can specify parameters, 
@@ -33,12 +33,14 @@
 #include <stdexcept>
 #include <filesystem>
 #include "..\..\include\injector_util.h"
+#include "..\..\include\SCL.hpp"
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 #define MIN_NUM_ARGS		4
 #define BASE_10				10
 #define DEFAULT_STACK_SIZE	0
+#define CONFIG_FILE "config"
 #define USAGE \
 L"Usage: %s <process_name> <bitness> <graphics_api> [ <dll_file1> <dll_file2> ... <dll_fileN> ]\n" \
 L"\n" \
@@ -131,7 +133,10 @@ int wmain(int argc, wchar_t** argv)
 	FARPROC load_lib_addr			= NULL;
 	HANDLE injected_thread			= NULL;
 
-	user_options.modules.emplace_back(L"uif_core.dll"); // Make sure the uif_core.dll is the first module in the vector
+	// Read in data from config file
+	scl::config_file uif_config(CONFIG_FILE, scl::config_file::READ);
+	std::string core_dll = uif_config.get<std::string>("CORE_DLL");
+	user_options.modules.emplace_back(std::filesystem::absolute(core_dll).wstring()); // Make sure the core_dll is the first module in the vector
 
 	if(!ParseArgs(argc, argv))
 	{

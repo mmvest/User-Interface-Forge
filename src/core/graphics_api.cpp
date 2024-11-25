@@ -1,7 +1,7 @@
 #include <stdexcept>
 #include <string>
-#include "graphics_api.h"
-#include "core_utils.h"
+#include "..\..\include\graphics_api.h"
+#include "..\..\include\core_utils.h"
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                             IGraphicsApi Class                            ║

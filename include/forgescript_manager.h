@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>   // For std::unique_ptr
-#include "..\..\include\lua.hpp"
+#include "lua.hpp"
 
 class ForgeScript
 {

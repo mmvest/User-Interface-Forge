@@ -1,4 +1,4 @@
-#include "forgescript_manager.h"
+#include "..\..\include\forgescript_manager.h"
 #include "..\..\include\lua.hpp"
 #include <filesystem>
 #include <fstream>

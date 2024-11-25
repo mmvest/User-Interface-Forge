@@ -1,7 +1,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <iostream>
-#include "..\include\injector_util.h"
+#include "..\..\include\injector_util.h"
 
 std::unordered_map<std::wstring, Bitness> bitness_map = {
     {L"32", Bitness::x86},
@@ -13,7 +13,8 @@ std::unordered_map<std::wstring, GraphicsAPI> api_map = {
     {L"d3d10", GraphicsAPI::DIRECTX10},
     {L"d3d11", GraphicsAPI::DIRECTX11},
     {L"d3d12", GraphicsAPI::DIRECTX12},
-    {L"vulkan", GraphicsAPI::VULKAN}
+    {L"vulkan", GraphicsAPI::VULKAN},
+    {L"opengl", GraphicsAPI::OPENGL}
 };
 
 unsigned long GetProcessIdByName(const wchar_t* process_name)

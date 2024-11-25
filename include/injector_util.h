@@ -23,6 +23,7 @@ enum class GraphicsAPI
     DIRECTX11,
     DIRECTX12,
     VULKAN,
+    OPENGL,
     UNKNOWN
 };
 extern std::unordered_map<std::wstring, GraphicsAPI> api_map;

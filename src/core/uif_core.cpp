@@ -41,9 +41,9 @@
 #include <thread>
 #include <atomic>
 #include "..\..\include\kiero.h"
-#include "graphics_api.h"
-#include "core_utils.h"
-#include "forgescript_manager.h"
+#include "..\..\include\graphics_api.h"
+#include "..\..\include\core_utils.h"
+#include "..\..\include\forgescript_manager.h"
 
 // *********************************
 // * Function Forward Declarations *

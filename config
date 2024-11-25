@@ -1,0 +1,6 @@
+# This is the dll that UiForge.exe will inject into the target process by default and run
+# Must be a relative path from the UiForge executable OR a full path to the dll
+CORE_DLL=bin\uif_core.dll
+
+# This is the directory, relative to the working directory of UiForge.exe, that contains the ForgeScripts
+FORGE_SCRIPT_DIR=scripts
