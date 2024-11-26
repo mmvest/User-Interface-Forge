@@ -1,8 +1,10 @@
-package.cpath = package.cpath .. ";.\\uif_mods\\imgui_lua_bindings.dll"
+local uiforge_packages = ";" .. uiforge_bin_dir .. "\\imgui_lua_bindings.dll"
+
+package.cpath = package.cpath .. uiforge_packages
 
 local imgui = require("imgui")
 
-local context = ModContext
+local context = mod_context
 if context then
     imgui.SetCurrentContext(context)
 end

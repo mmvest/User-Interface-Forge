@@ -37,6 +37,7 @@
 
 #include <Windows.h>
 #include <stdexcept>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -44,6 +45,10 @@
 #include "..\..\include\graphics_api.h"
 #include "..\..\include\core_utils.h"
 #include "..\..\include\forgescript_manager.h"
+#include "..\..\include\SCL.hpp"
+
+#define CONFIG_FILE "config"
+#define GET_CONFIG_VAL(root_dir, val_type, val_name) scl::config_file(std::string(root_dir + "\\" + CONFIG_FILE), scl::config_file::READ).get<val_type>(val_name)
 
 // *********************************
 // * Function Forward Declarations *
@@ -65,6 +70,10 @@ kiero::Status::Enum kiero_is_bound = kiero::Status::UnknownError;               
 IGraphicsApi* graphics_api;
 UiManager* ui_manager;
 ForgeScriptManager* script_manager;
+
+// These are exposed as globals to Lua Scripts
+std::string uiforge_root_dir;
+std::string uiforge_bin_dir;
 
 // For cleanup
 std::atomic<HMODULE> core_module_handle(NULL);
@@ -141,7 +150,22 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     // Load all mods
     try
     {
-        script_manager = new ForgeScriptManager("uif_mods");
+
+        // Get actual location of dll
+        char path_to_dll[MAX_PATH];
+        if(!GetModuleFileNameA(core_module_handle, path_to_dll, MAX_PATH))
+        {
+            throw std::runtime_error(std::string("Failed to get module file name. Error: " + GetLastError()));
+        }
+
+        // Get the root directory of UiForge
+        uiforge_root_dir = std::filesystem::path(path_to_dll).parent_path().parent_path().string();
+        uiforge_bin_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_BIN_DIR"));
+
+        // Set the script directory that the script manager will use
+        std::string script_dir(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
+
+        script_manager = new ForgeScriptManager(script_dir);
     }
     catch(const std::exception& err)
     {
@@ -178,7 +202,13 @@ void OnGraphicsApiInvoke(void* params)
 
             // Make context into lua global so scripts can access it
             lua_pushlightuserdata(script_manager->uif_lua_state, ui_manager->mod_context_);
-            lua_setglobal(script_manager->uif_lua_state, "ModContext");
+            lua_setglobal(script_manager->uif_lua_state, "mod_context");
+            
+            lua_pushstring(script_manager->uif_lua_state, uiforge_root_dir.c_str());
+            lua_setglobal(script_manager->uif_lua_state, "uiforge_root_dir");
+
+            lua_pushstring(script_manager->uif_lua_state, uiforge_bin_dir.c_str());
+            lua_setglobal(script_manager->uif_lua_state, "uiforge_bin_dir");
 
             if(!graphics_api->InitializeImGuiImpl())
             {

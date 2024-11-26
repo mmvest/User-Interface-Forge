@@ -1,14 +1,14 @@
 /**
  * @file uif_injector.cpp
- * @version 0.2.0
- * @brief Entry point for UiForge. Injects the uif_core.dll into a specified process with the desired configuration.
+ * @version 0.2.1
+ * @brief Entry point for UiForge. Injects the core dll into a specified process with the desired configuration.
  * 
- * This application allows the user to inject the uif_core.dll into a target process. The user can specify parameters, 
- * including process name, bitness (32 or 64), and the graphics API to be used (e.g. DirectX or Vulkan).
- * Additionally, it supports loading multiple optional DLL files. 
+ * This application allows the user to inject the core dll into a target process. Additionally, the user can specify
+ * optional DLL files to inject.
  * 
- * @example	StartUiForge.exe --help
- * 			StartUiForge.exe pcsx2-qt.exe 64 d3d11 my_module_01.dll my_module_02.dll
+ * @example	UiForge.exe --help
+ * 			UiForge.exe pcsx2-qt.exe
+ * 			UiForge.exe pcsx2-qt.exe my_module_01.dll my_module_02.dll
  * 
  * @note Ensure that the specified DLLs are compatible with the chosen bitness and graphics API.
  *       Currently only supports 64-bit d3d11 applications.
@@ -37,7 +37,7 @@
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
-#define MIN_NUM_ARGS		4
+#define MIN_NUM_ARGS		2
 #define BASE_10				10
 #define DEFAULT_STACK_SIZE	0
 #define CONFIG_FILE "config"
@@ -46,15 +46,6 @@ L"Usage: %s <process_name> <bitness> <graphics_api> [ <dll_file1> <dll_file2> ..
 L"\n" \
 L"Parameters:\n" \
 L"  <process_name>    Specifies the name of the target process to start UiForge in.\n" \
-L"\n" \
-L"  <bitness>         Specifies the architecture of the application.\n" \
-L"                    Must be either \"32\" for a 32-bit target or \"64\" for a 64-bit target.\n" \
-L"\n" \
-L"  <graphics_api>    Specifies the graphics API to use. Valid options are:\n" \
-L"                    - \"d3d11\"\n" \
-L"                    - \"d3d12\"\n" \
-L"                    - \"vulkan\"\n" \
-L"                    - \"opengl\"\n" \
 L"\n" \
 L"  <dll_file1>, <dll_file2>, ..., <dll_fileN>\n" \
 L"                    Optional: List of additional DLL files to load.\n" \
@@ -86,24 +77,6 @@ bool ParseArgs(int argc, wchar_t** argv)
 		{
 			case 1:
 				user_options.target_process_name = argv[arg_idx];
-				continue;
-
-			case 2: // Get the bitness
-				user_options.bitness = GetBitnessFromWString(argv[arg_idx]);
-				if ( user_options.bitness == Bitness::UNKNOWN )
-				{
-					std::wcout << "[!] Given bitness is unknown or unsupported" << std::endl;
-					return false;
-				}
-				continue;
-
-			case 3: // Get the graphics api
-				user_options.api = GetApiFromWString(argv[arg_idx]);
-				if(user_options.api == GraphicsAPI::UNKNOWN)
-				{
-					std::wcout << "[!] Given graphics api is unknown or unsupported" << std::endl;
-					return false;
-				}
 				continue;
 
 			default: // any extra modules

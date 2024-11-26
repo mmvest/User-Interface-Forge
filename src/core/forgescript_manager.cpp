@@ -98,7 +98,7 @@ ForgeScriptManager::ForgeScriptManager(const std::string& directory_path)
     {
         if(!entry.is_regular_file()) continue;
 
-        if (entry.path().extension() == ".lua") AddScript(std::string(".\\uif_mods\\") + entry.path().filename().string()); // Really should make a config file with the mod directory name in it or something...
+        if (entry.path().extension() == ".lua") AddScript(directory_path + "\\" + entry.path().filename().string());
     }
 }
 
