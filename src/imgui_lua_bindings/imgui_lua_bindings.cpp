@@ -254,9 +254,14 @@ int Lua_Combo(lua_State* L) {
     int current_item = luaL_checkinteger(L, 2);
 
     luaL_checktype(L, 3, LUA_TTABLE);
-    int items_count = lua_rawlen(L, 3);
 
+    // Use lua_objlen to get the table size
+    int items_count = lua_objlen(L, 3);
+
+    // Allocate memory for the items
     const char** items = new const char*[items_count];
+
+    // Populate the items array
     for (int i = 0; i < items_count; i++) {
         lua_rawgeti(L, 3, i + 1);
         items[i] = luaL_checkstring(L, -1);
@@ -269,9 +274,11 @@ int Lua_Combo(lua_State* L) {
     lua_pushboolean(L, result);
     lua_pushinteger(L, current_item);
 
+    // Free the allocated memory
     delete[] items;
     return 2;
 }
+
 
 // IsItemHovered
 int Lua_IsItemHovered(lua_State* L) {

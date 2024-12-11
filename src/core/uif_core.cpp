@@ -1,6 +1,6 @@
 /**
  * @file uif_core.cpp
- * @version 0.2.3
+ * @version 0.2.4
  * @brief DLL for injecting into a target process to hook graphics API and display ImGUI windows.
  * 
  * This file defines a dynamic-link library (DLL) that is designed to be injected into a target 
@@ -20,7 +20,8 @@
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2024-11-15 (version 0.2.3)
+ * @date    2024-12-11 (version 0.2.4)
+ *          2024-11-15 (version 0.2.3)
  *          2024-11-12 (version 0.2.2)
  *          2024-10-28 (version 0.2.1)
  *          2024-10-02 (version 0.2.0)
@@ -57,6 +58,7 @@ BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reser
 DWORD WINAPI CoreMain(LPVOID unused_param);
 void OnGraphicsApiInvoke(void* params);
 void CleanupUiForge();
+void SetupLuaGlobals();
 
 // ********************
 // * Global Variables *
@@ -200,15 +202,7 @@ void OnGraphicsApiInvoke(void* params)
             graphics_api->InitializeGraphicsApi(params);
             ui_manager = new UiManager(graphics_api->target_window);
 
-            // Make context into lua global so scripts can access it
-            lua_pushlightuserdata(script_manager->uif_lua_state, ui_manager->mod_context_);
-            lua_setglobal(script_manager->uif_lua_state, "mod_context");
-            
-            lua_pushstring(script_manager->uif_lua_state, uiforge_root_dir.c_str());
-            lua_setglobal(script_manager->uif_lua_state, "uiforge_root_dir");
-
-            lua_pushstring(script_manager->uif_lua_state, uiforge_bin_dir.c_str());
-            lua_setglobal(script_manager->uif_lua_state, "uiforge_bin_dir");
+            SetupLuaGlobals();  // Needs UI manager initialized
 
             if(!graphics_api->InitializeImGuiImpl())
             {
@@ -274,4 +268,22 @@ void CleanupUiForge()
     CoreUtils::InfoMessageBox("UiForge Cleaned Up!");
     FreeLibrary(core_module_handle);
     return;
+}
+
+void SetupLuaGlobals()
+{
+    if(!ui_manager)
+    {
+        return;
+    }
+
+    // setup global lua variables, including context
+    lua_pushlightuserdata(script_manager->uif_lua_state, ui_manager->mod_context_);
+    lua_setglobal(script_manager->uif_lua_state, "mod_context");
+    
+    lua_pushstring(script_manager->uif_lua_state, uiforge_root_dir.c_str());
+    lua_setglobal(script_manager->uif_lua_state, "uiforge_root_dir");
+
+    lua_pushstring(script_manager->uif_lua_state, uiforge_bin_dir.c_str());
+    lua_setglobal(script_manager->uif_lua_state, "uiforge_bin_dir");
 }

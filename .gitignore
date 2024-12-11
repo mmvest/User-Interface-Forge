@@ -10,3 +10,6 @@
 
 # Visual Studio Code settings
 .vscode/
+
+# Do not ignore lua51.dll -- need this for luajit
+!lua51.dll

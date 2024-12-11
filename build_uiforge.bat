@@ -66,11 +66,11 @@ if errorlevel 1 goto error
 
 echo Building Lua bindings
 if not exist %OBJ_DIR_BINDINGS% mkdir %OBJ_DIR_BINDINGS%
-cl /EHsc /LD /I %INCLUDE_DIR% /Fo:%OBJ_DIR_BINDINGS%\imgui_lua_bindings.obj /Fe:%BIN_DIR%\imgui_lua_bindings.dll %CSTD% %SRC_DIR%\imgui_lua_bindings\imgui_lua_bindings.cpp /link %LIBS_DIR%\lua.lib %LIBS_DIR%\imgui_directx11_1.91.2.lib
+cl /EHsc /LD /I %INCLUDE_DIR% /Fo:%OBJ_DIR_BINDINGS%\imgui_lua_bindings.obj /Fe:%BIN_DIR%\imgui_lua_bindings.dll %CSTD% %SRC_DIR%\imgui_lua_bindings\imgui_lua_bindings.cpp /link %LIBS_DIR%\lua51.lib %LIBS_DIR%\imgui_directx11_1.91.2.lib
 if errorlevel 1 goto error
 
 echo Building core
-cl /EHsc /LD /I %INCLUDE_DIR% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LIBS_DIR%\lua.lib
+cl /EHsc /LD /I %INCLUDE_DIR% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LIBS_DIR%\lua51.lib
 if errorlevel 1 goto error  
 
 goto cleanup
