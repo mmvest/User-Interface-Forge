@@ -21,7 +21,7 @@ bool    IGraphicsApi::initialized                       = false;
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                           D3D11GraphicsApi Class                          ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
-#include "..\..\include\imgui_impl_dx11.h"
+#include "..\..\include\imgui\imgui_impl_dx11.h"
 ID3D11Device*           D3D11GraphicsApi::d3d11_device            = nullptr;
 ID3D11DeviceContext*    D3D11GraphicsApi::d3d11_context           = nullptr;
 ID3D11RenderTargetView* D3D11GraphicsApi::main_render_target_view = nullptr;

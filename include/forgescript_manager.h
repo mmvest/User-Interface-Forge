@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>   // For std::unique_ptr
-#include "lua.hpp"
+#include "luajit\lua.hpp"
 
 class ForgeScript
 {
@@ -61,5 +61,5 @@ class ForgeScriptManager
     private:
 
         std::vector<std::unique_ptr<ForgeScript>> scripts;  // Vector to hold all ForgeScripts
-        std::string directory_path;                              // Directory where Lua scripts are located
+        std::string directory_path;                         // Directory where Lua scripts are located
 };

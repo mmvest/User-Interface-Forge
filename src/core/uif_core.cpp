@@ -1,6 +1,6 @@
 /**
  * @file uif_core.cpp
- * @version 0.2.4
+ * @version 0.2.5
  * @brief DLL for injecting into a target process to hook graphics API and display ImGUI windows.
  * 
  * This file defines a dynamic-link library (DLL) that is designed to be injected into a target 
@@ -15,12 +15,13 @@
  * @note    Ensure that the target process is compatible with the graphics API being hooked.
  * 
  * @warning You use this module at your own risk. You are responsible for how you use this code.
- *          Be careful about what lua scripts you throw into the uif_mods directory. This code will
+ *          Be careful about what lua scripts you throw into the scripts\modules directory. This code will
  *          load ANY scripts in there, including any that may contain malicious code. Only use
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2024-12-11 (version 0.2.4)
+ * @date    2024-12-13 (version 0.2.5)
+ *          2024-12-11 (version 0.2.4)
  *          2024-11-15 (version 0.2.3)
  *          2024-11-12 (version 0.2.2)
  *          2024-10-28 (version 0.2.1)
@@ -42,11 +43,14 @@
 #include <string>
 #include <thread>
 #include <atomic>
-#include "..\..\include\kiero.h"
+#include "..\..\include\kiero\kiero.h"
 #include "..\..\include\graphics_api.h"
 #include "..\..\include\core_utils.h"
 #include "..\..\include\forgescript_manager.h"
-#include "..\..\include\SCL.hpp"
+#include "..\..\include\SimpleConfigLibrary\SCL.hpp"
+#include "..\..\include\plog\Log.h"
+#include "..\..\include\plog\Initializers\RollingFileInitializer.h"
+#include "..\..\include\plog\Appenders\ConsoleAppender.h"
 
 #define CONFIG_FILE "config"
 #define GET_CONFIG_VAL(root_dir, val_type, val_name) scl::config_file(std::string(root_dir + "\\" + CONFIG_FILE), scl::config_file::READ).get<val_type>(val_name)
@@ -76,6 +80,8 @@ ForgeScriptManager* script_manager;
 // These are exposed as globals to Lua Scripts
 std::string uiforge_root_dir;
 std::string uiforge_bin_dir;
+std::string uiforge_script_dir;
+std::string uiforge_modules_dir;
 
 // For cleanup
 std::atomic<HMODULE> core_module_handle(NULL);
@@ -111,7 +117,8 @@ BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reser
                                                         NULL);      // Thread id
             if (!injected_main_thread)
             {
-                CoreUtils::ErrorMessageBox( std::string("UiForge failed to start properly. Error: " + std::to_string(GetLastError()) + "\n" ).c_str());
+                std::string err_msg("UiForge failed to start properly. Error: " + std::to_string(GetLastError()));
+                CoreUtils::ErrorMessageBox(err_msg.c_str());
                 break;
             }
 
@@ -137,53 +144,88 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
  * @return Exit status code, indicating success or failure
  */
 {
-    kiero_is_initialized = kiero::init(kiero::RenderType::D3D11);
-    if (kiero_is_initialized != kiero::Status::Success)
-    {
-        CoreUtils::ErrorMessageBox( std::string("Failed to initialize graphics api hooking functionality. Kiero status: " + std::to_string(kiero_is_initialized) + ". (See Kiero github or source for more info)\n").c_str());
-        return EXIT_FAILURE;
-    }
 
-    // Based on configuration, choose the graphics api. For now, its just D3D11.
-    // TODO: Maybe add a switch statement? Something here to choose which Graphics API
-    graphics_api = new D3D11GraphicsApi();
-    graphics_api->OnGraphicsApiInvoke = OnGraphicsApiInvoke;    // We could probably move this to the constructor
-
-    // Load all mods
     try
     {
-
-        // Get actual location of dll
+        // Get actual location of dll -- maybe move this to util??
         char path_to_dll[MAX_PATH];
         if(!GetModuleFileNameA(core_module_handle, path_to_dll, MAX_PATH))
         {
             throw std::runtime_error(std::string("Failed to get module file name. Error: " + GetLastError()));
         }
 
-        // Get the root directory of UiForge
+        // Get the root directory of UiForge, assumes one folder deep from root -- maybe make this dynamic based on config?
         uiforge_root_dir = std::filesystem::path(path_to_dll).parent_path().parent_path().string();
-        uiforge_bin_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_BIN_DIR"));
 
-        // Set the script directory that the script manager will use
-        std::string script_dir(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
-
-        script_manager = new ForgeScriptManager(script_dir);
+        // Initialize logging
+        int max_log_size 			= GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_SIZE_BYTES");
+        int max_log_files 			= GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_FILES");
+        std::string log_file_name 	= uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "LOG_FILE_NAME");
+        plog::Severity logging_level= static_cast<plog::Severity>(GET_CONFIG_VAL(uiforge_root_dir, int, "LOGGING_LEVEL"));
+        static plog::RollingFileAppender<plog::TxtFormatter> file_appender(log_file_name.c_str(), max_log_size, max_log_files);
+        plog::init(logging_level, &file_appender);
     }
     catch(const std::exception& err)
     {
+        PLOG_FATAL << err.what();        
+        CoreUtils::ErrorMessageBox(err.what());
+        return EXIT_FAILURE;
+    }
+    
+
+    PLOG_INFO << "Logging initialized";
+    
+    PLOG_INFO << "Initializing Core...";
+    PLOG_DEBUG << "Initializing kiero...";
+    kiero_is_initialized = kiero::init(kiero::RenderType::D3D11);
+    if (kiero_is_initialized != kiero::Status::Success)
+    {
+        std::string err_msg("Failed to initialize graphics api hooking functionality. Kiero status: " + std::to_string(kiero_is_initialized) + ". (See Kiero github or source for more info)");
+        PLOG_FATAL << err_msg;
+        CoreUtils::ErrorMessageBox(err_msg.c_str());
+        return EXIT_FAILURE;
+    }
+
+    // Based on configuration, choose the graphics api. For now, its just D3D11.
+    // TODO: Maybe add a switch statement? Something here to choose which Graphics API
+    PLOG_DEBUG << "Creating GraphicsAPI object";
+    graphics_api = new D3D11GraphicsApi();
+    graphics_api->OnGraphicsApiInvoke = OnGraphicsApiInvoke;    // We could probably move this to the constructor
+
+    // Load all mods
+    try
+    {
+        uiforge_bin_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_BIN_DIR"));
+        PLOG_DEBUG << "UiForge bin directory: " << uiforge_bin_dir;
+
+        // Set the script directory that the script manager will use
+        uiforge_script_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
+        PLOG_DEBUG << "UiForge script directory: " << uiforge_script_dir;
+        
+        script_manager = new ForgeScriptManager(uiforge_script_dir);
+        PLOG_DEBUG << "ForgeScriptManager created: ";
+
+        // Get the modules directory
+        uiforge_modules_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_MODULES_DIR"));
+        PLOG_DEBUG << "UiForge modules directory: " << uiforge_modules_dir;
+    }
+    catch(const std::exception& err)
+    {
+        PLOG_FATAL << err.what();        
         CoreUtils::ErrorMessageBox(err.what());
         return EXIT_FAILURE;
     }
 
-    // TODO: Kiero won't work once we have multiple possible Graphics API as it assumes you are using a single API (if I remember correctly)
     kiero_is_bound = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&graphics_api->OriginalFunction, graphics_api->HookedFunction);
     if (kiero_is_bound != kiero::Status::Success)
     {
-        CoreUtils::ErrorMessageBox( std::string("Failed to hook graphics api \"present\" function. Kiero status: " + std::to_string(kiero_is_bound) + ". (See Kiero github or source for more info)\n").c_str());
+        std::string err_msg("Failed to hook graphics api \"present\" function. Kiero status: " + std::to_string(kiero_is_bound) + ". (See Kiero github or source for more info)\n");
+        PLOG_FATAL << err_msg;
+        CoreUtils::ErrorMessageBox(err_msg.c_str());
         return EXIT_FAILURE;
     }
 
-    CoreUtils::InfoMessageBox("UiForge Started!");
+    PLOG_INFO << "Core initialized!";
     return EXIT_SUCCESS;
 }
 
@@ -199,18 +241,29 @@ void OnGraphicsApiInvoke(void* params)
     {
         try
         {
+            PLOG_DEBUG << "Initializing GraphicsAPI object";
             graphics_api->InitializeGraphicsApi(params);
+
+            PLOG_DEBUG << "Creating UiManager";
             ui_manager = new UiManager(graphics_api->target_window);
+            if(!ui_manager)
+            {
+                throw std::runtime_error("Failed to initialize Graphics API ImGui Implementation.");
+            }
 
-            SetupLuaGlobals();  // Needs UI manager initialized
+            PLOG_DEBUG << "Setting up lua globals";
+            SetupLuaGlobals();
 
+            PLOG_DEBUG << "Initializing ImGuiImpl";
             if(!graphics_api->InitializeImGuiImpl())
             {
                 throw std::runtime_error("Failed to initialize Graphics API ImGui Implementation.");
             }
+             PLOG_DEBUG << "Done with graphics initialization";
         }
         catch (const std::exception& err)
         {
+            PLOG_FATAL << err.what();
             CoreUtils::ErrorMessageBox(err.what());
             CleanupUiForge();
             return;
@@ -229,8 +282,10 @@ void OnGraphicsApiInvoke(void* params)
 
 void CleanupUiForge()
 {
+    PLOG_INFO << "Cleaning up UiForge...";
     if(kiero_is_initialized == kiero::Status::Success)
     {
+        PLOG_INFO << "Shutting down Kiero...";
         kiero::shutdown();
         kiero_is_initialized = kiero::Status::NotInitializedError;
         kiero_is_bound = kiero::Status::UnknownError;
@@ -240,43 +295,53 @@ void CleanupUiForge()
     // entirely convinced this won't introduce some form of race condition
     if(core_module_handle)
     {
-        std::thread([]()
-        { 
+        // std::thread([]()
+        // {
+            PLOG_DEBUG << "Clean up thread created...";
+
             if(script_manager)
             {
+                PLOG_INFO << "Cleaning up script manager...";
                 delete script_manager;
                 script_manager = nullptr;
             }
 
-            if(graphics_api) graphics_api->ShutdownImGuiImpl();
+            if(graphics_api)
+            {
+                PLOG_INFO << "Shutting down imgui graphics api implementation...";
+                graphics_api->ShutdownImGuiImpl();
+            }
 
             if(ui_manager)
             {
+                PLOG_INFO << "Cleaning up UI Manager";
                 delete ui_manager;
                 ui_manager = nullptr;
             }
 
             if(graphics_api)
             {
+                PLOG_INFO << "Cleaning up graphics api...";
                 delete graphics_api;
                 graphics_api = nullptr;
-            } 
+            }
+            PLOG_DEBUG << "Closing clean up thread...";
             
-        }).detach();
+        // }).detach();
+
+        // cleanup_thread.join();
+        char* cleanup_msg = "UiForge Cleaned Up!";
+        PLOG_DEBUG << cleanup_msg;
+        CoreUtils::InfoMessageBox(cleanup_msg);
+        FreeLibrary(core_module_handle);
     }
 
-    CoreUtils::InfoMessageBox("UiForge Cleaned Up!");
-    FreeLibrary(core_module_handle);
+
     return;
 }
 
 void SetupLuaGlobals()
 {
-    if(!ui_manager)
-    {
-        return;
-    }
-
     // setup global lua variables, including context
     lua_pushlightuserdata(script_manager->uif_lua_state, ui_manager->mod_context_);
     lua_setglobal(script_manager->uif_lua_state, "mod_context");
@@ -286,4 +351,10 @@ void SetupLuaGlobals()
 
     lua_pushstring(script_manager->uif_lua_state, uiforge_bin_dir.c_str());
     lua_setglobal(script_manager->uif_lua_state, "uiforge_bin_dir");
+    
+    lua_pushstring(script_manager->uif_lua_state, uiforge_script_dir.c_str());
+    lua_setglobal(script_manager->uif_lua_state, "uiforge_script_dir");
+
+    lua_pushstring(script_manager->uif_lua_state, uiforge_modules_dir.c_str());
+    lua_setglobal(script_manager->uif_lua_state, "uiforge_modules_dir");
 }

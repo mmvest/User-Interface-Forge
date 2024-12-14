@@ -2,20 +2,7 @@
 #include <tlhelp32.h>
 #include <iostream>
 #include "..\..\include\injector_util.h"
-
-std::unordered_map<std::wstring, Bitness> bitness_map = {
-    {L"32", Bitness::x86},
-    {L"64", Bitness::x86_64}
-};
-
-std::unordered_map<std::wstring, GraphicsAPI> api_map = {
-    {L"d3d9", GraphicsAPI::DIRECTX9},
-    {L"d3d10", GraphicsAPI::DIRECTX10},
-    {L"d3d11", GraphicsAPI::DIRECTX11},
-    {L"d3d12", GraphicsAPI::DIRECTX12},
-    {L"vulkan", GraphicsAPI::VULKAN},
-    {L"opengl", GraphicsAPI::OPENGL}
-};
+#include "..\..\include\plog\Log.h"
 
 unsigned long GetProcessIdByName(const wchar_t* process_name)
 /**
@@ -40,14 +27,14 @@ unsigned long GetProcessIdByName(const wchar_t* process_name)
     HANDLE process_list_snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (process_list_snapshot == INVALID_HANDLE_VALUE)
     {
-        std::wcerr << "[!] Failed to get process snapshot. Error: " << GetLastError() << std::endl;
+        PLOG_FATAL << "[!] Failed to get process snapshot. Error: " << GetLastError();
         goto cleanup;
     }
 
     process_entry.dwSize = sizeof(PROCESSENTRY32W);
     if (!Process32FirstW(process_list_snapshot, &process_entry))
     {
-        std::wcerr << "[!] Failed to get first process from snapshot. Error: " << GetLastError() << std::endl;
+        PLOG_FATAL << "[!] Failed to get first process from snapshot. Error: " << GetLastError();
         goto cleanup;
     }
 
@@ -121,28 +108,4 @@ std::wstring ConcatenateWStrings(std::vector<std::wstring> str_vec)
     }
 
     return result;
-}
-
-GraphicsAPI GetApiFromWString(const std::wstring& str)
-{
-    try
-    {
-        return api_map.at(str);	
-    }
-    catch(const std::exception& err)
-    {
-        return GraphicsAPI::UNKNOWN;
-    }
-}
-
-Bitness GetBitnessFromWString(const std::wstring& str)
-{
-    try
-    {
-        return bitness_map.at(str);	
-    }
-    catch(const std::exception& err)
-    {
-        return Bitness::UNKNOWN;
-    }
 }

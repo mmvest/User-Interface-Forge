@@ -1,5 +1,5 @@
 #include "..\..\include\forgescript_manager.h"
-#include "..\..\include\lua.hpp"
+#include "..\..\include\luajit\lua.hpp"
 #include <filesystem>
 #include <fstream>
 #include <thread>

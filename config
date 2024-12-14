@@ -4,10 +4,19 @@ CORE_DLL=bin\uif_core.dll
 
 # This is the directory, relative to the working directory of UiForge.exe, that contains the ForgeScripts
 FORGE_SCRIPT_DIR=scripts
+FORGE_MODULES_DIR=scripts\modules
 FORGE_BIN_DIR=bin
 
+
 # Change this to whichever one you need. Must be one of: d3d11, d3d12, vulkan, opengl
+# I hope to get rid of this option in the future and have the api auto-detected
 GRAPHICS_API=d3d11
 
 # Unused
 BITS=64
+
+# Logging -- levels are none = 0, fatal = 1, error = 2, warning = 3, info = 4, debug = 5, verbose = 6
+MAX_LOG_SIZE_BYTES=1000000
+MAX_LOG_FILES=2
+LOG_FILE_NAME=forge_log.txt
+LOGGING_LEVEL=6
