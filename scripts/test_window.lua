@@ -1,113 +1,111 @@
-local ffi = require("ffi")
-
--- move these directories to the config so they can be dynamic
-package.path = uiforge_modules_dir .. "\\?.lua" .. ";" .. package.path
-local imgui = require("imgui")
-
 state = state or {
-    checkbox_state = ffi.new("bool[1]", true),
-    slider_float_value = ffi.new("float[1]", 0.5),
-    slider_int_value = ffi.new("int[1]", 10),
-    radio_button_value = 1,
-    input_text_buffer = ffi.new("char[256]", "Hello, ImGui!"),
-    color_value = ffi.new("float[4]", {1.0, 0.0, 0.0, 1.0}),
-    combo_selected = ffi.new("int[1]", 0),
-    combo_items = ffi.new("const char*[3]", {"Item 1", "Item 2", "Item 3"}),
-    progress_bar_value = 0.4,
+    window_open         = true,
+    button_clicked      = false,
+    checkbox_checked    = false,
+    radio_buttons       = 0,
+    slider_float        = 0.5,
+    slider_int          = 5,
+    combo_items         = {"Item 01", "Item 02", "Item 03"},
+    combo_index         = 0,
+    color4              = { 1, .5, .25, 1},
+    progress_percent        = 0
 }
 
--- Create ImVec2 and ImVec4 instances for testing
-local size = ffi.new("ImVec2")
-imgui.NewImVec2(200, 20, size)
+-- Make a window
 
-local color = ffi.new("ImVec4")
-imgui.NewImVec4(0.5, 0.5, 0.5, 1.0, color)
+if ImGui.Begin("Hello, UiForge!", state.window_open, ImGuiWindowFlags.MenuBar) then
+    
+    -- Menu Bars
+    if ImGui.BeginMenuBar() then
+        if ImGui.BeginMenu("Menu 01") then
+            if ImGui.MenuItem("Item 01") then
+                -- Do a thing
+            end
+            if ImGui.MenuItem("Item 02") then
+                -- Do a thing
+            end
+            ImGui.EndMenu()
+        end
+        if ImGui.BeginMenu("Menu 02") then
+            if ImGui.MenuItem("Item 01") then
+                -- Do a thing
+            end
+            if ImGui.MenuItem("Item 02") then
+                -- Do a thing
+            end
+            ImGui.EndMenu()
+        end
+        ImGui.EndMenuBar()
+    end
 
--- Set the current ImGui context
--- local context = mod_context
--- if context then
---     imgui.SetCurrentContext(context)
--- end
+    -- Display text
+    ImGui.Text("You can display text like this.")
+    ImGui.BulletText("This is a bullet point!")
+    
+    -- Button
+    if ImGui.Button("Click Me!", 200, 50) then
+        state.button_clicked = not state.button_clicked
+    end   -- Make Buttons like this
+    if state.button_clicked then
+        ImGui.Text("Button Clicked!")
+    
+    end
 
--- Start a new window
-if imgui.Begin("Test Window", ffi.cast("void*", nil), 0) then
-    -- Text
-    imgui.Text("Testing all functions.")
+    -- Checkbox
+    state.checkbox_checked = ImGui.Checkbox("I am a checkbox", state.checkbox_checked)
+    ImGui.SameLine()
 
-    -- -- Button
-    -- if imgui.Button("Click Me") then
-    --     print("Button clicked!")
-    -- end
+    -- Tooltips
+    ImGui.Text("(?)")
+    if ImGui.IsItemHovered() then
+        ImGui.SetTooltip("This is a tooltip!")
+    end
 
-    -- -- Checkbox
-    -- if imgui.Checkbox("Check this", state.checkbox_state) then
-    --     print("Checkbox state:", state.checkbox_state[0])
-    -- end
+    -- Radio buttons -- I use an override of the function that isn't in meta.lua
+    if ImGui.RadioButton("Radio 01", state.radio_buttons == 1) then
+        state.radio_buttons = 1
+    end
 
-    -- -- SliderFloat
-    -- if imgui.SliderFloat("Float Slider", state.slider_float_value, 0.0, 1.0, "%.2f", 1.0) then
-    --     print("SliderFloat value:", state.slider_float_value[0])
-    -- end
+    if ImGui.RadioButton("Radio 02", state.radio_buttons == 2) then
+        state.radio_buttons = (state.radio_buttons == 2) and 0 or 2   -- Makes the button toggleable on and off by clicking it again
+    end
 
-    -- -- SliderInt
-    -- if imgui.SliderInt("Int Slider", state.slider_int_value, 0, 20, "%d") then
-    --     print("SliderInt value:", state.slider_int_value[0])
-    -- end
+    -- Sliders
+    state.slider_float = ImGui.SliderFloat("Float Slider", state.slider_float, 0, 1.0)
+    state.slider_int = ImGui.SliderInt("Int Slider", state.slider_int, 0, 10, "Slider Text: " .. state.slider_int)
 
-    -- -- RadioButton
-    -- if imgui.RadioButton("Option 1", state.radio_button_value == 1) then
-    --     state.radio_button_value = 1
-    -- end
-    -- if imgui.RadioButton("Option 2", state.radio_button_value == 2) then
-    --     state.radio_button_value = 2
-    -- end
-    -- print("RadioButton selected:", state.radio_button_value)
+    -- Combo Box
+    state.combo_index = ImGui.Combo("Combo Box", state.combo_index, state.combo_items, #state.combo_items)
 
-    -- -- ProgressBar
-    -- state.progress_bar_value = (state.progress_bar_value + 0.01) % 1.0
-    -- imgui.ProgressBar(state.progress_bar_value, size, "Progress Bar")
+    -- Color Picker
+    state.color4 = ImGui.ColorEdit4("Color Picker", state.color4)
 
-    -- -- InputText
-    -- if imgui.InputText("Input Text", state.input_text_buffer, ffi.sizeof(state.input_text_buffer), 0, nil, nil) then
-    --     print("InputText value:", ffi.string(state.input_text_buffer))
-    -- end
+    -- Progress Bar
+    local progress_text = string.format("Loading... (%.1f%%)", state.progress_percent * 100)
+    ImGui.ProgressBar(state.progress_percent, 200, 20, progress_text)
+    state.progress_percent = state.progress_percent + .001
+    if state.progress_percent >= 1 then
+        state.progress_percent = 0
+    end
 
-    -- -- ColorEdit4
-    -- if imgui.ColorEdit4("Edit Color", state.color_value, 0) then
-    --     print("ColorEdit4 value:", table.concat({state.color_value[0], state.color_value[1], state.color_value[2], state.color_value[3]}, ", "))
-    -- end
+    -- Tabs
+    if ImGui.BeginTabBar("Tabs") then
+        if ImGui.BeginTabItem("Tab 01") then
+            ImGui.Text("This is the content for tab 1")
+            ImGui.EndTabItem()
+        end
+        if ImGui.BeginTabItem("Tab 02") then
+            ImGui.Button("This is the content for tab 2")
+            ImGui.EndTabItem()
+        end
+        if ImGui.BeginTabItem("Tab 03") then
+            ImGui.Text("This is the content for tab 3")
+            ImGui.EndTabItem()
+        end
+        ImGui.EndTabBar()
+    end
 
-    -- -- -- Combo
-    -- -- if imgui.Combo("Select Item", state.combo_selected, state.combo_items, 3, 5) then
-    -- --     print("Combo selected:", state.combo_items[state.combo_selected[0] + 1])
-    -- -- end
-
-    -- -- IsItemHovered and Tooltip
-    -- if imgui.IsItemHovered() then
-    --     imgui.SetTooltip("Hovered over combo box!")
-    -- end
-
-    -- -- TreeNode and TreePop
-    -- if imgui.TreeNode("TreeNode Example") then
-    --     imgui.Text("Inside a TreeNode")
-    --     imgui.TreePop()
-    -- end
-
-    -- -- CollapsingHeader
-    -- if imgui.CollapsingHeader("Collapsible Header", 0) then
-    --     imgui.Text("Inside Collapsible Header")
-    -- end
-
-    -- -- PushStyleColor and PopStyleColor
-    -- imgui.PushStyleColor(0, color)
-    -- imgui.Text("Styled Text")
-    -- imgui.PopStyleColor(1)
-
-    -- -- SameLine
-    -- imgui.Text("Text A")
-    -- imgui.SameLine()
-    -- imgui.Text("Text B")
 end
 
--- End the window
-imgui.End()
+-- End the window (MUST BE CALLED REGARDLESS OF THE RESULT OF BEGIN)
+ImGui.End()

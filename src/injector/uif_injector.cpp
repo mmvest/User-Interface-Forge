@@ -143,7 +143,7 @@ int wmain(int argc, wchar_t** argv)
 
 	// write dll name
 	list_of_modules = ConcatenateWStrings(user_options.modules).c_str();
-	PLOG_INFO << L"[+] Writing DLLs to target process..."; 
+	PLOG_INFO << L"[+] Writing all DLLs to target process...";
 	did_write_memory = WriteProcessMemory(target_process, inject_address, list_of_modules, num_bytes_to_write, &num_bytes_written);
 	if (!did_write_memory || num_bytes_written != num_bytes_to_write)
 	{

@@ -54,8 +54,6 @@ class D3D11GraphicsApi : public IGraphicsApi
         static ID3D11Device*            d3d11_device;
         static ID3D11DeviceContext*     d3d11_context;
         static ID3D11RenderTargetView*  main_render_target_view;
-        static D3D11GraphicsApi*        instance;
-        
 };
 
 class D3D12GraphicsApi : public IGraphicsApi

@@ -131,8 +131,6 @@ void D3D11GraphicsApi::Cleanup(void* params)
 
         initialized = false;
     }
-
-    //CoreUtils::InfoMessageBox("Mod cleaned up");    // Don't delete this -- for some reason cleanup breaks if you do TODO: FIGURE OUT WHY I NEED THIS AND HOW TO FIX IT
 }   
 
 D3D11GraphicsApi::~D3D11GraphicsApi()

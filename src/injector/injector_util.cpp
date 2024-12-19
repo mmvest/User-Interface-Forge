@@ -103,8 +103,10 @@ std::wstring ConcatenateWStrings(std::vector<std::wstring> str_vec)
     std::wstring result;
 
     for (std::wstring str : str_vec) {
+        PLOG_DEBUG << L"Concatenating: " << str;
         result += str;
         result += L'\0'; // Be sure to include the null bytes!
+        PLOG_DEBUG << L"Result: " << result;
     }
 
     return result;

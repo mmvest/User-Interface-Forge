@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>   // For std::unique_ptr
 #include "luajit\lua.hpp"
+#include "sol\sol.hpp"
 
 class ForgeScript
 {
@@ -57,6 +58,7 @@ class ForgeScriptManager
         ~ForgeScriptManager();
         
         lua_State* uif_lua_state;
+        // sol::state_view uif_sol_state_view;
 
     private:
 

@@ -28,16 +28,24 @@ set OBJ_DIR_CORE=%BIN_DIR%\core
 set LIBS_DIR=%CWD%libs
 
 :: Have to modify include  environment variable so all the files will link properly
-set INCLUDE=%CWD%include;%INCLUDE%
+set INCLUDE=%CWD%include;%CWD%include\luajit;%INCLUDE%
 
 set CSTD=/std:c++17
 
 :: Graphics API linking options
 set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib
+set LINK_DIRECTINPUT=dinput8.lib dxguid.lib
 set LINK_GRAPHICS=%LINK_D3D11%
 
 :: LuaJIT linking
 set LINK_LUA=%LIBS_DIR%\lua51.lib
+
+:: SWIG
+:: set SWIG_DEFINES=STATIC_LINKED
+:: ..\..\tools\swigwin-4.3.0\swig.exe -c++ -lua -D_WIN32 -DIMGUI_DISABLE_OBSOLETE_FUNCTIONS -no-old-metatable-bindings -o include\luajit\imgui_bindings.hpp src\core\imgui.i
+
+:: sol_ImGui
+set SOL_IMGUI_DEFINES=IMGUI_NO_DOCKING
 
 :: Initialize build environment
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -48,7 +56,7 @@ cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\uif_injector.cpp
 if errorlevel 1 goto error
 
 :: Build the core
-cl /nologo /EHsc /LD /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA%
+cl /nologo /EHsc /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
 if errorlevel 1 goto error  
 
 goto cleanup

@@ -1,12 +1,17 @@
-#include "..\..\include\forgescript_manager.h"
-#include "..\..\include\luajit\lua.hpp"
+#include "forgescript_manager.h"
+#include "luajit\lua.hpp"
 #include <filesystem>
 #include <fstream>
 #include <thread>
 #include <Windows.h>
+#include "imgui\sol_ImGui.h"
+#include "plog\Log.h"
+
 
 
 #define FIND_SCRIPT_BY_NAME(name) [&name](const std::unique_ptr<ForgeScript>& script){ return script->file_name == name;}
+
+extern int luaopen_imgui(lua_State* L);
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                            ForgeScript Class                              ║
@@ -83,15 +88,19 @@ ForgeScript::~ForgeScript(){}
 // ║                          ForgeScriptManager Class                         ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
 
-ForgeScriptManager::ForgeScriptManager(const std::string& directory_path)
+ForgeScriptManager::ForgeScriptManager(const std::string& directory_path):uif_lua_state(lua_open())
 {
-    uif_lua_state = luaL_newstate();
     if(!uif_lua_state)
     {
         throw std::runtime_error("Failed to create Lua state.");
     }
 
     luaL_openlibs(uif_lua_state);
+
+    sol::state_view uif_sol_state_view(uif_lua_state);  // Need the sol::state_view to initialize the imgui bindings
+
+    // Initialize Sol ImGui Bindings
+    sol_ImGui::Init(uif_sol_state_view);
 
     // Get all of the scripts from the directory and add them to the script vector
     for(const auto& entry : std::filesystem::directory_iterator(directory_path))
@@ -152,5 +161,13 @@ ForgeScript* ForgeScriptManager::GetScript(const std::string file_name)
 
 ForgeScriptManager::~ForgeScriptManager()
 {
-    if(uif_lua_state) lua_close(uif_lua_state);
+    if(uif_lua_state)
+    {
+        PLOG_DEBUG << "Closing Lua State";
+        lua_close(uif_lua_state);
+
+        PLOG_DEBUG << "Setting state to nullptr";
+        uif_lua_state = nullptr;
+    }
+    PLOG_DEBUG << "--- End ForgeScriptManager Destructor ---";
 }
