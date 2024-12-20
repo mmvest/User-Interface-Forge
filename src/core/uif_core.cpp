@@ -1,15 +1,15 @@
 /**
  * @file uif_core.cpp
- * @version 0.2.5
+ * @version 0.3.0
  * @brief DLL for injecting into a target process to hook graphics API and display ImGUI windows.
  * 
  * This file defines a dynamic-link library (DLL) that is designed to be injected into a target 
  * process. Upon injection, the DLL will:
  * 
- * 1. Load all scripts located in the "uif_mods" directory.
+ * 1. Load all scripts located in the scripts directory.
  * 2. Utilize the Kiero library to hook the chosen graphics API (e.g., DirectX, Vulkan, etc.).
  * 3. Initialize the Dear ImGUI framework to create and manage graphical user interface (GUI) windows.
- * 4. Execute the custom modules code, displaying custom imgui windows or performing other tasks.
+ * 4. Execute scripts, displaying custom imgui windows or performing other tasks.
  *
  *
  * @note    Ensure that the target process is compatible with the graphics API being hooked.
@@ -20,7 +20,8 @@
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2024-12-13 (version 0.2.5)
+ * @date    2024-12-20 (version 0.3.0)
+ *          2024-12-13 (version 0.2.5)
  *          2024-12-11 (version 0.2.4)
  *          2024-11-15 (version 0.2.3)
  *          2024-11-12 (version 0.2.2)
@@ -28,11 +29,6 @@
  *          2024-10-02 (version 0.2.0)
  *          2024-10-02 (version 0.1.1)
  *          2024-09-25 (version 0.1.0)
- * 
- * @todo Clean up code -- some of this stuff is rough
- * @todo Comment functions
- * @todo BUG: disappears when fullscreen/screen-resize
- * @todo create management window for enabling/disabling modules and getting debug info such as time elapsed to run each module, memory usage, etc.
  */
 
 
