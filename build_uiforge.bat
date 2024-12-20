@@ -56,7 +56,7 @@ cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\uif_injector.cpp
 if errorlevel 1 goto error
 
 :: Build the core
-cl /nologo /EHsc /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
+cl /nologo /bigobj /EHsc /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
 if errorlevel 1 goto error  
 
 goto cleanup
