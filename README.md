@@ -64,7 +64,7 @@ As long as the application is actively rendering frames using a supported graphi
 
 ![](media/demo_run_uiforge.gif)
 
-TO stop UiForge, just press the END key. Upon hitting the END key, a dialog box should pop up telling you that UiForge has cleaned up.
+To stop UiForge, just press the END key. Upon hitting the END key, a dialog box should pop up telling you that UiForge has cleaned up.
 
 As of right now, there is no way to change this keybind except by changing the code itself, but I plan to add the ability to manage keybinds in the future. 
 
@@ -73,7 +73,7 @@ Note that NOT closing this dialog box and then attempting to re-inject may cause
 UiForge requires a specific file structure to function properly. By default, the following structure is expected:
 ```
 project-root/ 
-├── config.json     # Configuration file for UiForge 
+├── config          # Configuration file for UiForge 
 ├── bin/ 
 │ └── uif_core.dll  # Core DLL for UiForge 
 ├── scripts/        # Directory for Lua scripts to be loaded and run 
