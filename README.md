@@ -12,13 +12,13 @@ A framework for injecting and managing custom UI elements in Windows Processes.
 User Interface Forge (UiForge) is a tool for injecting and managing custom UI elements in any Windows GUI applications using DirectX 11. The framework provides a means whereby users can create their own UI elements using the [ImGui](https://github.com/ocornut/imgui) library and then have their UI elements rendered in the application. Since your code will be running within the address space of the target process, you also have access to that address space meaning you can expose variables and addresses within the process that you can then access, display, or manipulate via your ImGui UI. This tool is ideal for developers or hobbyists who want to extend or modify the behavior of existing software, such as games or graphical applications.
 
 UiForge has three main parts:
-1. **[ImGui Lua Bindings (sol_ImGui.h)](include/imgui/sol_ImGui.h)** - These bindings provide access to ImGui's functionality in Lua so you can write create your own UI elements in Lua instead of C/C++. I have unofficially dubbed these Lua scripts as "ForgeScripts".
+1. **[ImGui Lua Bindings (sol_ImGui.h)](include/imgui/sol_ImGui.h)** - These bindings provide access to ImGui's functionality in Lua so you can write and create your own UI elements in Lua instead of C/C++. I have unofficially dubbed these Lua scripts as "ForgeScripts".
 
 1. **The Core (uif_core.dll)** - This is responsible for loading, running, and managing all of the Lua scripts. It is also responsible for hooking the correct graphics api functions so that the custom UI can be displayed within the context of the target application.
 
 1. **The Injector (UiForge.exe)** - This is responsible for getting the uif_core DLL into the target application and starting it.
 
-Currently this project only supports 64-bit DirectX11, but the goal is to support DirectX12, OpenGL, and Vulkan.
+Currently this project only supports 64-bit DirectX11, but the goal is to support DirectX12, OpenGL, Vulkan, and 32-bit building.
 
 <div align="center">
 
