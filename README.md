@@ -12,7 +12,7 @@ A framework for injecting and managing custom UI elements in Windows Processes.
 User Interface Forge (UiForge) is a tool for injecting and managing custom UI elements in any Windows GUI applications using DirectX 11. The framework provides a means whereby users can create their own UI elements using the [ImGui](https://github.com/ocornut/imgui) library and then have their UI elements rendered in the application. Since your code will be running within the address space of the target process, you also have access to that address space meaning you can expose variables and addresses within the process that you can then access, display, or manipulate via your ImGui UI. This tool is ideal for developers or hobbyists who want to extend or modify the behavior of existing software, such as games or graphical applications.
 
 UiForge has three main parts:
-1. **[ImGui Lua Bindings (sol_ImGui.h)](include\imgui\sol_ImGui.h)** - These bindings provide access to ImGui's functionality in Lua so you can write create your own UI elements in Lua instead of C/C++. I have unofficially dubbed these Lua scripts as "ForgeScripts".
+1. **[ImGui Lua Bindings (sol_ImGui.h)](include/imgui/sol_ImGui.h)** - These bindings provide access to ImGui's functionality in Lua so you can write create your own UI elements in Lua instead of C/C++. I have unofficially dubbed these Lua scripts as "ForgeScripts".
 
 1. **The Core (uif_core.dll)** - This is responsible for loading, running, and managing all of the Lua scripts. It is also responsible for hooking the correct graphics api functions so that the custom UI can be displayed within the context of the target application.
 
@@ -62,7 +62,7 @@ UiForge.exe <target_application_name>
 ```
 As long as the application is actively rendering frames using a supported graphics api, you should see a demo window pop up. Here is an example of injecting UiForge into a running pcsx2 emulator:
 
-![](media\demo_run_uiforge.gif)
+![](media/demo_run_uiforge.gif)
 
 TO stop UiForge, just press the END key. Upon hitting the END key, a dialog box should pop up telling you that UiForge has cleaned up.
 
@@ -99,7 +99,7 @@ UiForge simplifies the management and creation of custom injected UI elements by
 
 - **Custom Modules**: Use the `scripts\modules` directory to add any custom libraries or lua modules you want to access in your scripts.
 
-- **Example Script**: The [`test_window.lua`](scripts\test_window.lua) file demonstrates basic use cases for the ImGui bindings, serving as a helpful starting point.
+- **Example Script**: The [`test_window.lua`](scripts/test_window.lua) file demonstrates basic use cases for the ImGui bindings, serving as a helpful starting point.
 
 - **Static Linking for Simplicity**: All third-party dependencies (ImGui, Kiero, LuaJIT, etc.) are statically linked into UiForge. This eliminates the need to manage DLLs or download and install additional libraries. All libraries required for the build can be found in the `libs` folder.
 

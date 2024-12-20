@@ -338,6 +338,7 @@ void CleanupUiForge()
 
 void SetupLuaGlobals()
 {
+    //TODO: USE SOL TO REGISTER THESE IN THE FORGESCRIPT_MANAGER
     // setup global lua variables, including context
     lua_pushlightuserdata(script_manager->uif_lua_state, ui_manager->mod_context_);
     lua_setglobal(script_manager->uif_lua_state, "mod_context");
