@@ -40,22 +40,35 @@ set LINK_GRAPHICS=%LINK_D3D11%
 :: LuaJIT linking
 set LINK_LUA=%LIBS_DIR%\lua51.lib
 
-:: SWIG
-:: set SWIG_DEFINES=STATIC_LINKED
-:: ..\..\tools\swigwin-4.3.0\swig.exe -c++ -lua -D_WIN32 -DIMGUI_DISABLE_OBSOLETE_FUNCTIONS -no-old-metatable-bindings -o include\luajit\imgui_bindings.hpp src\core\imgui.i
-
 :: sol_ImGui
 set SOL_IMGUI_DEFINES=IMGUI_NO_DOCKING
 
 :: Initialize build environment
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
 
+if /I "%~1"=="" goto build_all
+if /I "%~1"=="injector" set BUILD_ALL=false & set BUILD_INJECTOR=true
+if /I "%~1"=="core" set BUILD_ALL=false & set BUILD_CORE=true
+
 :: Build the injector
+:build_injector
+if "%BUILD_ALL%"=="true" goto build_injector_run
+if "%BUILD_INJECTOR%"=="true" goto build_injector_run
+goto build_core
+
+:build_injector_run
 if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
 cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\uif_injector.cpp %SRC_DIR%\injector\injector_util.cpp
 if errorlevel 1 goto error
+goto build_core
+
+:build_core
+if "%BUILD_ALL%"=="true" goto build_core_run
+if "%BUILD_CORE%"=="true" goto build_core_run
+goto cleanup
 
 :: Build the core
+:build_core_run
 cl /nologo /bigobj /EHsc /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
 if errorlevel 1 goto error  
 
@@ -77,3 +90,8 @@ del %BIN_DIR%\*.lib >nul 2>&1
 del *.obj >nul 2>&1
 
 exit /b 0
+
+:build_all
+set BUILD_INJECTOR=true
+set BUILD_CORE=true
+goto build_injector

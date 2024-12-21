@@ -51,7 +51,7 @@ unsigned long GetProcessIdByName(const wchar_t* process_name)
     return process_id;
 }
 
-size_t GetSizeOfWStringBytes(std::wstring str)
+size_t GetSizeOfWStringBytes(const std::wstring& str)
 /**
  * @brief Calculates the size in bytes of a wide string (std::wstring).
  * 
@@ -66,7 +66,7 @@ size_t GetSizeOfWStringBytes(std::wstring str)
     return ((str.size() + 1) * sizeof(wchar_t)); // add one for the null terminator
 }
 
-size_t GetTotalSizeBytesOfWStrings(std::vector<std::wstring> str_vec)
+size_t GetTotalSizeBytesOfWStrings(std::vector<std::wstring>& str_vec)
 /**
  * @brief Calculates the total size in bytes of a vector of wide strings (std::vector<std::wstring>).
  * 
@@ -80,14 +80,14 @@ size_t GetTotalSizeBytesOfWStrings(std::vector<std::wstring> str_vec)
  */
 {
     size_t total = 0;
-    for (std::wstring str : str_vec)
+    for (const std::wstring& str : str_vec)
     {
         total += GetSizeOfWStringBytes(str); 
     }
     return total;
 }
 
-std::wstring ConcatenateWStrings(std::vector<std::wstring> str_vec)
+std::wstring ConcatenateWStrings(std::vector<std::wstring>& str_vec)
 /**
  * @brief Concatenates a vector of wide strings (std::vector<std::wstring>) into a single wide string.
  * 
@@ -102,11 +102,10 @@ std::wstring ConcatenateWStrings(std::vector<std::wstring> str_vec)
 {
     std::wstring result;
 
-    for (std::wstring str : str_vec) {
+    for (const std::wstring& str : str_vec) {
         PLOG_DEBUG << L"Concatenating: " << str;
         result += str;
-        result += L'\0'; // Be sure to include the null bytes!
-        PLOG_DEBUG << L"Result: " << result;
+        result.push_back(L'\0'); // Be sure to include the null bytes!
     }
 
     return result;

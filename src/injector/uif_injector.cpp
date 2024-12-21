@@ -45,14 +45,10 @@
 #define DEFAULT_STACK_SIZE	0
 #define CONFIG_FILE "config"
 #define USAGE \
-L"Usage: %s <process_name> [ <dll_file1> <dll_file2> ... <dll_fileN> ]\n" \
+L"Usage: %s <process_name>\n" \
 L"\n" \
 L"Parameters:\n" \
 L"  <process_name>    Specifies the name of the target process to start UiForge in.\n" \
-L"\n" \
-L"  <dll_file1>, <dll_file2>, ..., <dll_fileN>\n" \
-L"                    Optional: List of additional DLL files to load.\n" \
-L"                    You can specify one or more module names that represent the names of the DLLs.\n" \
 L"\n" \
 L"Options:\n" \
 L"  -h, -help, --help, /? \n" \
@@ -60,10 +56,8 @@ L"                    Displays this usage statement and exits.\n" \
 L"\n" \
 L"Example:\n" \
 L"  %s --help\n" \
-L"  %s 64 d3d11 my_module_01.dll my_module_02.dll\n" \
-L"\n" \
-L"Note: If you are providing additional modules, be sure they are either in your path or\n" \
-L"      somewhere the target application can find.\n" 
+L"  %s target_app.exe\n" \
+L"\n"
 
 UserOptions user_options;
 
@@ -129,11 +123,11 @@ int wmain(int argc, wchar_t** argv)
 		goto cleanup;
 	}
 
-	PLOG_INFO << L"[+] Injecting modules... ";
+	PLOG_INFO << L"[+] Injecting module(s)... ";
 	for(std::wstring module_name : user_options.modules) PLOG_INFO << L"---[+] " << module_name;
 
 	num_bytes_to_write = GetTotalSizeBytesOfWStrings(user_options.modules);
-	PLOG_INFO << L"[+] Total size of modules: " << num_bytes_to_write << L" bytes";
+	PLOG_INFO << L"[+] Total size of module(s): " << num_bytes_to_write << L" bytes";
 	inject_address = VirtualAllocEx(target_process, NULL, num_bytes_to_write, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!inject_address)
 	{
@@ -141,17 +135,26 @@ int wmain(int argc, wchar_t** argv)
 		goto cleanup;
 	}
 
-	// write dll name
-	list_of_modules = ConcatenateWStrings(user_options.modules).c_str();
-	PLOG_INFO << L"[+] Writing all DLLs to target process...";
+	// Setup payload string
+	list_of_modules = (const wchar_t*)malloc(num_bytes_to_write);
+	if(!list_of_modules)
+	{
+		PLOG_FATAL << L"[!] Failed to allocate memory for buffer used to prepare string payload.";
+		goto cleanup;
+	}
+	
+	memcpy((void*)list_of_modules, (void*)ConcatenateWStrings(user_options.modules).c_str(), num_bytes_to_write);
+
+	// Write payload to target proces
+	PLOG_INFO << L"[+] Writing payload to target process...";
 	did_write_memory = WriteProcessMemory(target_process, inject_address, list_of_modules, num_bytes_to_write, &num_bytes_written);
 	if (!did_write_memory || num_bytes_written != num_bytes_to_write)
 	{
 		PLOG_FATAL << L"[!] Failed to write payload to memory in target process. Error: " << GetLastError();
 		goto cleanup;
 	}
-	PLOG_DEBUG << L"---[+] " << num_bytes_written << L" bytes written";
-	PLOG_DEBUG << L"---[+] Bytes written: "; 
+
+	PLOG_DEBUG << L"---[+] Bytes written: " << num_bytes_written; 
 	for (unsigned idx=0; idx < num_bytes_to_write; idx++)
 	{
 		PLOG_DEBUG.printf("%02x ", ((char*)list_of_modules)[idx]);
@@ -172,7 +175,7 @@ int wmain(int argc, wchar_t** argv)
 	}
 
 	// Run each module
-	PLOG_INFO << L"[+] Starting injected DLLs...";
+	PLOG_INFO << L"[+] Starting injected DLL(s)...";
 	for(std::wstring mod : user_options.modules)
 	{
 		PLOG_DEBUG.printf(L"[+] Starting %s (0x%llX)...", mod.c_str(), reinterpret_cast<std::uintptr_t>(inject_address));
@@ -199,6 +202,7 @@ cleanup:
 		std::getwchar();
 	}
 	if (inject_address && target_process && (!did_write_memory || num_bytes_written != num_bytes_to_write || injected_thread == NULL)) VirtualFreeEx(target_process, inject_address, 0, MEM_RELEASE);
+	if(list_of_modules) free((void*)list_of_modules);
 	if (injected_thread) CloseHandle(injected_thread);
 	if (target_process) CloseHandle(target_process);
 
