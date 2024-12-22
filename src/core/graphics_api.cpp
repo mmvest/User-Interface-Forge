@@ -2,21 +2,23 @@
 #include <string>
 #include "..\..\include\graphics_api.h"
 #include "..\..\include\core_utils.h"
+#include "plog\Log.h"
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                             IGraphicsApi Class                            ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
 void    IGraphicsApi::Cleanup(void* params){}
-void    (*IGraphicsApi::InitializeGraphicsApi)(void*)   = nullptr;
-bool    (*IGraphicsApi::InitializeImGuiImpl)()          = nullptr;
-void    (*IGraphicsApi::NewFrame)()                     = nullptr;
-void    (*IGraphicsApi::Render)()                       = nullptr;
-void    (*IGraphicsApi::OnGraphicsApiInvoke)(void*)     = nullptr;
-void    (*IGraphicsApi::ShutdownImGuiImpl)()            = nullptr;
-void*   IGraphicsApi::OriginalFunction                  = nullptr;
-void*   IGraphicsApi::HookedFunction                    = nullptr;
-HWND    IGraphicsApi::target_window                     = nullptr;
-bool    IGraphicsApi::initialized                       = false;
+void    (*IGraphicsApi::InitializeGraphicsApi)(void*)                                               = nullptr;
+bool    (*IGraphicsApi::InitializeImGuiImpl)()                                                      = nullptr;
+void    (*IGraphicsApi::NewFrame)()                                                                 = nullptr;
+void    (*IGraphicsApi::Render)()                                                                   = nullptr;
+void    (*IGraphicsApi::OnGraphicsApiInvoke)(void*)                                                 = nullptr;
+void*   (*IGraphicsApi::CreateTextureFromFile)(const std::wstring& file_path)                       = nullptr;
+void    (*IGraphicsApi::ShutdownImGuiImpl)()                                                        = nullptr;
+void*   IGraphicsApi::OriginalFunction                                                              = nullptr;
+void*   IGraphicsApi::HookedFunction                                                                = nullptr;
+HWND    IGraphicsApi::target_window                                                                 = nullptr;
+bool    IGraphicsApi::initialized                                                                   = false;
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                           D3D11GraphicsApi Class                          ║
@@ -33,6 +35,7 @@ D3D11GraphicsApi::D3D11GraphicsApi()
     IGraphicsApi::NewFrame                  = D3D11GraphicsApi::NewFrame;
     IGraphicsApi::Render                    = D3D11GraphicsApi::Render;
     IGraphicsApi::HookedFunction            = D3D11GraphicsApi::HookedPresent;
+    IGraphicsApi::CreateTextureFromFile     = D3D11GraphicsApi::CreateTextureFromFile;
     IGraphicsApi::ShutdownImGuiImpl         = D3D11GraphicsApi::ShutdownImGuiImpl;
 }
 
@@ -101,6 +104,23 @@ HRESULT __stdcall D3D11GraphicsApi::HookedPresent(IDXGISwapChain* swap_chain, UI
     return ((D3D11GraphicsApi::Present)OriginalFunction)(swap_chain, sync_interval, flags);
 }
 
+void* D3D11GraphicsApi::CreateTextureFromFile(const std::wstring& file_path)
+{
+    void * out_texture_view = nullptr;
+    PLOG_DEBUG << "Creating texture of " << file_path;
+    HRESULT result = DirectX::CreateWICTextureFromFile( d3d11_device, d3d11_context, file_path.c_str(), nullptr, (ID3D11ShaderResourceView**)&out_texture_view );
+    if (FAILED(result))
+    {
+        PLOG_ERROR << "Failed to load texture. Returned HRESULT: " << result;
+    }
+    else
+    {
+        PLOG_DEBUG << "Texture created: " << out_texture_view;
+    }
+
+    return out_texture_view;
+}
+
 void D3D11GraphicsApi::ShutdownImGuiImpl()
 {
     ImGui_ImplDX11_Shutdown();
@@ -128,6 +148,8 @@ void D3D11GraphicsApi::Cleanup(void* params)
             main_render_target_view->Release();
             main_render_target_view = nullptr;
         }
+        
+        // TODO: Find out what cleanup is associated with CreateTextureFromFile
 
         initialized = false;
     }

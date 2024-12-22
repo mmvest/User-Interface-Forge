@@ -40,7 +40,7 @@ class ForgeScriptManager
 {
     public:
         // Constructor to load all scripts from the specified directory_path
-        ForgeScriptManager(const std::string& directory_path);
+        ForgeScriptManager(std::string directory_path);
 
         // Method to add a new ForgeScript
         void AddScript(const std::string file_name);
@@ -60,8 +60,13 @@ class ForgeScriptManager
         lua_State* uif_lua_state;
         // sol::state_view uif_sol_state_view;
 
+        std::string scripts_path;
+        std::string modules_path;
+        std::string resources_path;
     private:
-
         std::vector<std::unique_ptr<ForgeScript>> scripts;  // Vector to hold all ForgeScripts
-        std::string directory_path;                         // Directory where Lua scripts are located
+        void InitializeUiForgeBindings(sol::state_view lua);
+        void SetupUiForgeLuaGlobals(sol::table uiforge_table, sol::state_view lua);
+        void InitializeGraphicsApiLuaBindings(sol::table uiforge_table, sol::state_view lua);
+
 };

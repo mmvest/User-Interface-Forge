@@ -3,6 +3,7 @@
 // DirectX 11
 #include <d3d11.h>
 #include <dxgi.h>
+#include "WICTextureLoader.h"
 
 #include "ui_manager.h"
 
@@ -25,6 +26,7 @@ class IGraphicsApi
         static void (*NewFrame)();
         static void (*Render)();
         static void (*OnGraphicsApiInvoke)(void* params);
+        static void* (*CreateTextureFromFile)(const std::wstring& file_path);
         static void (*ShutdownImGuiImpl)();
         virtual void Cleanup(void* params);
 
@@ -44,6 +46,7 @@ class D3D11GraphicsApi : public IGraphicsApi
         static void NewFrame();
         static void Render();
         static HRESULT __stdcall HookedPresent(IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);
+        static void* CreateTextureFromFile(const std::wstring& file_path);
         static void ShutdownImGuiImpl();
         void Cleanup(void* params = nullptr) override;
         typedef HRESULT(__stdcall* Present) (IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags);

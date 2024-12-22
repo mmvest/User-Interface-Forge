@@ -2,10 +2,14 @@
 # Must be a relative path from the UiForge executable OR a full path to the dll
 CORE_DLL=bin\uif_core.dll
 
-# This is the directory, relative to the working directory of UiForge.exe, that contains the ForgeScripts
-FORGE_SCRIPT_DIR=scripts
-FORGE_MODULES_DIR=scripts\modules
+# These directories are relative to the working directory of UiForge.exe
 FORGE_BIN_DIR=bin
+FORGE_SCRIPT_DIR=scripts
+
+# These directories are relative to FORGE_SCRIPT_DIR
+FORGE_MODULES_DIR=modules
+FORGE_RESOURCES_DIR=resources
+
 
 
 # Change this to whichever one you need. Must be one of: d3d11, d3d12, vulkan, opengl

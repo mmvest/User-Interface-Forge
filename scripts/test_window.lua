@@ -17,7 +17,12 @@ state = state or {
     demo_window_flags   = ImGuiWindowFlags.None,
     demo_cur_health     = 100,
     demo_max_health     = 100,
-    demo_damage         = 10
+    demo_damage         = 10,
+    image_texture       = nil,
+    image_width         = 64,
+    image_height        = 64,
+    image_tint          = {1, 1, 1, 1},
+    image_border_col    = {0, 0, 0, 0}
 
 }
 
@@ -173,6 +178,7 @@ if ImGui.Begin("Hello, UiForge!", state.window_open, ImGuiWindowFlags.MenuBar) t
         local ngon_radius = circle_radius
         draw_list:AddNgonFilled(ngon_center, ngon_radius, 0xFFFFFFFF, state.sides)
         draw_list:AddNgon(ngon_center, ngon_radius, line_color, state.sides, state.line_thickness)
+        ImGui.Dummy(0, 60) -- Create a buffer space for the shapes since using ImDrawList doesn't move the cursor
         ImGui.TreePop()
     end
 
@@ -226,6 +232,35 @@ if ImGui.Begin("Hello, UiForge!", state.window_open, ImGuiWindowFlags.MenuBar) t
 
         ImGui.End()
         
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNode("Images") then
+        if state.gear_texture == nil then
+            state.gear_texture = UiForge.IGraphicsApi.CreateTextureFromFile(UiForge.resources_path .. "\\gear-icon.png")
+        end
+        
+        if state.gear_texture ~= nil then
+            state.image_width = ImGui.SliderInt("Image Width", state.image_width, 32, 128)
+            state.image_height = ImGui.SliderInt("Image Height", state.image_height, 32, 128)
+            state.image_tint = ImGui.ColorEdit4("Image Tint", state.image_tint)
+            state.image_border_col = ImGui.ColorEdit4("Image Border Color", state.image_border_col)
+            
+            -- local image_tint = ImGui.GetColorU32(state.image_tint[1], state.image_tint[2], state.image_tint[3] , state.image_tint[4])
+            -- local image_border_col = ImGui.GetColorU32(state.image_border_col[1], state.image_border_col[2], state.image_border_col[3] , state.image_border_col[4])
+            
+            -- Simplified image call
+            ImGui.Image(state.gear_texture, state.image_width, state.image_height)
+            ImGui.SameLine()
+            -- Advanced image call
+            ImGui.Image(state.gear_texture,
+                        ImVec2.new(state.image_width, state.image_height),
+                        ImVec2.new(0,0),
+                        ImVec2.new(1,1),
+                        ImVec4.new(state.image_tint[1], state.image_tint[2], state.image_tint[3] , state.image_tint[4]),
+                        ImVec4.new(state.image_border_col[1], state.image_border_col[2], state.image_border_col[3] , state.image_border_col[4])
+                        )
+        end
         ImGui.TreePop()
     end
 end

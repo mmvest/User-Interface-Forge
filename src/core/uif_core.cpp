@@ -48,9 +48,6 @@
 #include "..\..\include\plog\Initializers\RollingFileInitializer.h"
 #include "..\..\include\plog\Appenders\ConsoleAppender.h"
 
-#define CONFIG_FILE "config"
-#define GET_CONFIG_VAL(root_dir, val_type, val_name) scl::config_file(std::string(root_dir + "\\" + CONFIG_FILE), scl::config_file::READ).get<val_type>(val_name)
-
 // *********************************
 // * Function Forward Declarations *
 // *********************************
@@ -73,11 +70,7 @@ IGraphicsApi* graphics_api;
 UiManager* ui_manager;
 ForgeScriptManager* script_manager;
 
-// These are exposed as globals to Lua Scripts
 std::string uiforge_root_dir;
-std::string uiforge_bin_dir;
-std::string uiforge_script_dir;
-std::string uiforge_modules_dir;
 
 // For cleanup
 std::atomic<HMODULE> core_module_handle(NULL);
@@ -143,15 +136,7 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
 
     try
     {
-        // Get actual location of dll -- maybe move this to util??
-        char path_to_dll[MAX_PATH];
-        if(!GetModuleFileNameA(core_module_handle, path_to_dll, MAX_PATH))
-        {
-            throw std::runtime_error(std::string("Failed to get module file name. Error: " + GetLastError()));
-        }
-
-        // Get the root directory of UiForge, assumes one folder deep from root -- maybe make this dynamic based on config?
-        uiforge_root_dir = std::filesystem::path(path_to_dll).parent_path().parent_path().string();
+        uiforge_root_dir = CoreUtils::GetUiForgeRootDirectory();
 
         // Initialize logging
         int max_log_size 			= GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_SIZE_BYTES");
@@ -191,19 +176,12 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     // Load all mods
     try
     {
-        uiforge_bin_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_BIN_DIR"));
-        PLOG_DEBUG << "UiForge bin directory: " << uiforge_bin_dir;
-
         // Set the script directory that the script manager will use
-        uiforge_script_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
+        std::string uiforge_script_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
         PLOG_DEBUG << "UiForge script directory: " << uiforge_script_dir;
         
         script_manager = new ForgeScriptManager(uiforge_script_dir);
-        PLOG_DEBUG << "ForgeScriptManager created: ";
-
-        // Get the modules directory
-        uiforge_modules_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_MODULES_DIR"));
-        PLOG_DEBUG << "UiForge modules directory: " << uiforge_modules_dir;
+        PLOG_DEBUG << "ForgeScriptManager created";
     }
     catch(const std::exception& err)
     {
@@ -246,9 +224,6 @@ void OnGraphicsApiInvoke(void* params)
             {
                 throw std::runtime_error("Failed to initialize Graphics API ImGui Implementation.");
             }
-
-            PLOG_DEBUG << "Setting up lua globals";
-            SetupLuaGlobals();
 
             PLOG_DEBUG << "Initializing ImGuiImpl";
             if(!graphics_api->InitializeImGuiImpl())
@@ -334,24 +309,4 @@ void CleanupUiForge()
 
 
     return;
-}
-
-void SetupLuaGlobals()
-{
-    //TODO: USE SOL TO REGISTER THESE IN THE FORGESCRIPT_MANAGER
-    // setup global lua variables, including context
-    lua_pushlightuserdata(script_manager->uif_lua_state, ui_manager->mod_context_);
-    lua_setglobal(script_manager->uif_lua_state, "mod_context");
-    
-    lua_pushstring(script_manager->uif_lua_state, uiforge_root_dir.c_str());
-    lua_setglobal(script_manager->uif_lua_state, "uiforge_root_dir");
-
-    lua_pushstring(script_manager->uif_lua_state, uiforge_bin_dir.c_str());
-    lua_setglobal(script_manager->uif_lua_state, "uiforge_bin_dir");
-    
-    lua_pushstring(script_manager->uif_lua_state, uiforge_script_dir.c_str());
-    lua_setglobal(script_manager->uif_lua_state, "uiforge_script_dir");
-
-    lua_pushstring(script_manager->uif_lua_state, uiforge_modules_dir.c_str());
-    lua_setglobal(script_manager->uif_lua_state, "uiforge_modules_dir");
 }

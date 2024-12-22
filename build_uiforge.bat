@@ -33,7 +33,7 @@ set INCLUDE=%CWD%include;%CWD%include\luajit;%INCLUDE%
 set CSTD=/std:c++17
 
 :: Graphics API linking options
-set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib
+set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib libs\DirectXTK.lib
 set LINK_DIRECTINPUT=dinput8.lib dxguid.lib
 set LINK_GRAPHICS=%LINK_D3D11%
 
@@ -69,7 +69,7 @@ goto cleanup
 
 :: Build the core
 :build_core_run
-cl /nologo /bigobj /EHsc /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
+cl /nologo /bigobj /EHsc /MT /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
 if errorlevel 1 goto error  
 
 goto cleanup
