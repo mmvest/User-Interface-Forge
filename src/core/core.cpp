@@ -1,6 +1,6 @@
 /**
  * @file uif_core.cpp
- * @version 0.3.0
+ * @version 0.3.1
  * @brief DLL for injecting into a target process to hook graphics API and display ImGUI windows.
  * 
  * This file defines a dynamic-link library (DLL) that is designed to be injected into a target 
@@ -20,7 +20,8 @@
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2024-12-20 (version 0.3.0)
+ * @date    2025-01-01 (version 0.3.1)
+ *          2024-12-20 (version 0.3.0)
  *          2024-12-13 (version 0.2.5)
  *          2024-12-11 (version 0.2.4)
  *          2024-11-15 (version 0.2.3)
