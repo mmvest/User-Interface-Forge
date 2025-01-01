@@ -1,7 +1,7 @@
 #include <stdexcept>
 #include <string>
-#include "..\..\include\graphics_api.h"
-#include "..\..\include\core_utils.h"
+#include "core\graphics_api.h"
+#include "core\util.h"
 #include "plog\Log.h"
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗

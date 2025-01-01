@@ -236,11 +236,11 @@ if ImGui.Begin("Hello, UiForge!", state.window_open, ImGuiWindowFlags.MenuBar) t
     end
 
     if ImGui.TreeNode("Images") then
-        if state.gear_texture == nil then
-            state.gear_texture = UiForge.IGraphicsApi.CreateTextureFromFile(UiForge.resources_path .. "\\gear-icon.png")
+        if state.image_texture == nil then
+            state.image_texture = UiForge.IGraphicsApi.CreateTextureFromFile(UiForge.resources_path .. "\\gear-icon.png")
         end
         
-        if state.gear_texture ~= nil then
+        if state.image_texture ~= nil then
             state.image_width = ImGui.SliderInt("Image Width", state.image_width, 32, 128)
             state.image_height = ImGui.SliderInt("Image Height", state.image_height, 32, 128)
             state.image_tint = ImGui.ColorEdit4("Image Tint", state.image_tint)
@@ -250,10 +250,21 @@ if ImGui.Begin("Hello, UiForge!", state.window_open, ImGuiWindowFlags.MenuBar) t
             -- local image_border_col = ImGui.GetColorU32(state.image_border_col[1], state.image_border_col[2], state.image_border_col[3] , state.image_border_col[4])
             
             -- Simplified image call
-            ImGui.Image(state.gear_texture, state.image_width, state.image_height)
+            ImGui.Image(state.image_texture, state.image_width, state.image_height)
             ImGui.SameLine()
-            -- Advanced image call
-            ImGui.Image(state.gear_texture,
+            
+            -- Advanced image calls
+            -- ImGui.GetWindowDrawList():AddImage( state.image_texture,
+            --                                     ImVec2.new(0,0),
+            --                                     ImVec2.new(state.image_width, state.image_height),
+            --                                     ImVec2.new(0,0),
+            --                                     ImVec2.new(1,1),
+            --                                     ImGui.GetColorU32(state.image_tint[1], state.image_tint[2], state.image_tint[3] , state.image_tint[4])
+            --                                   )
+            ImGui.Dummy(state.image_width, state.image_height)
+            ImGui.SameLine()
+
+            ImGui.Image(state.image_texture,
                         ImVec2.new(state.image_width, state.image_height),
                         ImVec2.new(0,0),
                         ImVec2.new(1,1),

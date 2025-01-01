@@ -58,7 +58,7 @@ goto build_core
 
 :build_injector_run
 if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
-cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\uif_injector.cpp %SRC_DIR%\injector\injector_util.cpp
+cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp %SRC_DIR%\injector\util.cpp
 if errorlevel 1 goto error
 goto build_core
 
@@ -69,7 +69,7 @@ goto cleanup
 
 :: Build the core
 :build_core_run
-cl /nologo /bigobj /EHsc /MT /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uif_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
+cl /nologo /bigobj /EHsc /MT /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uiforge_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA% %LINK_DIRECTINPUT%
 if errorlevel 1 goto error  
 
 goto cleanup

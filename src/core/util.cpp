@@ -3,7 +3,7 @@
 #include <string>
 #include <atomic>
 #include <filesystem>
-#include "core_utils.h"
+#include "core\util.h"
 
 extern std::atomic<bool> needs_cleanup;         // From uif_core.cpp
 extern std::atomic<HMODULE> core_module_handle; // From uif_core.cpp

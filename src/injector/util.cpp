@@ -1,8 +1,8 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <iostream>
-#include "..\..\include\injector_util.h"
-#include "..\..\include\plog\Log.h"
+#include "injector\util.h"
+#include "plog\Log.h"
 
 unsigned long GetProcessIdByName(const wchar_t* process_name)
 /**

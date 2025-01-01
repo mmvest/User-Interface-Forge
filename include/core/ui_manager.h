@@ -1,7 +1,7 @@
 #pragma once
 #include <Windows.h>
 #include "imgui\imgui.h"
-#include "forgescript_manager.h"
+#include "core\forgescript_manager.h"
 
 class UiManager 
 {

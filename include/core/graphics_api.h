@@ -3,9 +3,9 @@
 // DirectX 11
 #include <d3d11.h>
 #include <dxgi.h>
-#include "WICTextureLoader.h"
+#include "directx\WICTextureLoader.h"
 
-#include "ui_manager.h"
+#include "core\ui_manager.h"
 
 enum class GraphicsApiType
 {

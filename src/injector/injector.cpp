@@ -32,11 +32,11 @@
 #include <vector>
 #include <stdexcept>
 #include <filesystem>
-#include "..\..\include\injector_util.h"
-#include "..\..\include\SimpleConfigLibrary\SCL.hpp"
-#include "..\..\include\plog\Log.h"
-#include "..\..\include\plog\Initializers\RollingFileInitializer.h"
-#include "..\..\include\plog\Appenders\ConsoleAppender.h"
+#include "injector\util.h"
+#include "scl\SCL.hpp"
+#include "plog\Log.h"
+#include "plog\Initializers\RollingFileInitializer.h"
+#include "plog\Appenders\ConsoleAppender.h"
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1

@@ -39,14 +39,14 @@
 #include <string>
 #include <thread>
 #include <atomic>
-#include "..\..\include\kiero\kiero.h"
-#include "..\..\include\graphics_api.h"
-#include "..\..\include\core_utils.h"
-#include "..\..\include\forgescript_manager.h"
-#include "..\..\include\SimpleConfigLibrary\SCL.hpp"
-#include "..\..\include\plog\Log.h"
-#include "..\..\include\plog\Initializers\RollingFileInitializer.h"
-#include "..\..\include\plog\Appenders\ConsoleAppender.h"
+#include "kiero\kiero.h"
+#include "core\graphics_api.h"
+#include "core\util.h"
+#include "core\forgescript_manager.h"
+#include "scl\SCL.hpp"
+#include "plog\Log.h"
+#include "plog\Initializers\RollingFileInitializer.h"
+#include "plog\Appenders\ConsoleAppender.h"
 
 // *********************************
 // * Function Forward Declarations *

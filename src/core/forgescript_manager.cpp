@@ -1,5 +1,6 @@
-#include "forgescript_manager.h"
-#include "graphics_api.h"   // I don't like doing this, but I need it so I can expose some functions to Lua
+#include "core\forgescript_manager.h"
+#include "core\graphics_api.h"   // I don't like doing this, but I need it so I can expose some functions to Lua
+#include "core\util.h"
 #include "luajit\lua.hpp"
 #include <filesystem>
 #include <fstream>
@@ -7,12 +8,12 @@
 #include <Windows.h>
 #include "imgui\sol_ImGui.h"
 #include "plog\Log.h"
-#include "SimpleConfigLibrary\SCL.hpp"
-#include "core_utils.h"
+#include "scl\SCL.hpp"
+
 
 #define FIND_SCRIPT_BY_NAME(name) [&name](const std::unique_ptr<ForgeScript>& script){ return script->file_name == name;}
 
-extern int luaopen_imgui(lua_State* L);
+extern int luaopen_imgui(lua_State* L); // From sol_ImGui.h; Used to initialize the ImGui Lua Bindings
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                            ForgeScript Class                              ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -128,10 +129,9 @@ void ForgeScriptManager::AddScript(const std::string file_name)
     {
         scripts.emplace_back(std::make_unique<ForgeScript>(file_name));
     }
-    catch(const std::exception& e)
+    catch(const std::exception& err)
     {
-        // TODO: Log the error somehow but don't crash... still need to 
-        // figure out how I want to do logging
+        PLOG_ERROR << "Error adding script: " << err.what();
 
     }
 }
@@ -155,7 +155,8 @@ void ForgeScriptManager::RunScripts()
         }
         catch(const std::exception& err)
         {
-            std::thread([err] { MessageBoxA(nullptr, err.what(), "UiForge Error",  MB_OK | MB_ICONERROR); }).detach();
+            PLOG_ERROR << "Error running script " << script->file_name << ": " << err.what();
+            CoreUtils::ErrorMessageBox(err.what());
             script->Disable();
         }
     }
@@ -177,8 +178,8 @@ void ForgeScriptManager::InitializeUiForgeBindings(sol::state_view lua)
 
     SetupUiForgeLuaGlobals(uiforge_table, lua);
     
-    // Add the modules directory to the lua package path
-    lua["package"]["path"] = lua["package"]["path"].get<std::string>() + ";" + modules_path;
+    // Add the modules directory to the lua package path as well as one level deep for those who want to store modules in sub dirs
+    lua["package"]["path"] = lua["package"]["path"].get<std::string>() + ";" + modules_path + "\\?.lua;" + modules_path + "\\?\\?.lua";
 
     // Initialize Graphics API bindings
     InitializeGraphicsApiLuaBindings(uiforge_table, lua);
