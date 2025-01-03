@@ -30,7 +30,7 @@ class IGraphicsApi
         static void (*ShutdownImGuiImpl)();
         virtual void Cleanup(void* params);
 
-        static void* OriginalFunction;  // Note the naming convention on the following two variables don't match my normal convention.
+        static void* OriginalFunction;  // Note the naming convention on these two variables don't match my normal convention.
         static void* HookedFunction;    // This is because I am treating these variables like functions and thus use function naming convention.
         static bool  initialized;
         static HWND  target_window;
@@ -39,7 +39,7 @@ class IGraphicsApi
 class D3D11GraphicsApi : public IGraphicsApi
 {
     public:
-        D3D11GraphicsApi();
+        D3D11GraphicsApi(void(*OnGraphicsApiInvoke)(void*));
 
         static void InitializeApi(void* swap_chain);
         static bool InitializeImGui();

@@ -1,6 +1,6 @@
 /**
  * @file uif_core.cpp
- * @version 0.3.1
+ * @version 0.3.2
  * @brief DLL for injecting into a target process to hook graphics API and display ImGUI windows.
  * 
  * This file defines a dynamic-link library (DLL) that is designed to be injected into a target 
@@ -20,7 +20,8 @@
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2025-01-01 (version 0.3.1)
+ * @date    2025-01-02 (version 0.3.2)
+ *          2025-01-01 (version 0.3.1)
  *          2024-12-20 (version 0.3.0)
  *          2024-12-13 (version 0.2.5)
  *          2024-12-11 (version 0.2.4)
@@ -48,19 +49,27 @@
 #include "plog\Log.h"
 #include "plog\Initializers\RollingFileInitializer.h"
 #include "plog\Appenders\ConsoleAppender.h"
+#include "luajit\lua.hpp"
+#include "imgui\sol_ImGui.h"
 
-// *********************************
-// * Function Forward Declarations *
-// *********************************
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                             Forward Declarations                          ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
 BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reserved);
 DWORD WINAPI CoreMain(LPVOID unused_param);
 void OnGraphicsApiInvoke(void* params);
+void LoadConfiguration();
+void LogConfigValues();
+void InitializeLua();
+void InitializeUiForgeLuaBindings(sol::state_view lua);
+void InitializeUiForgeLuaGlobalVariables(sol::table uiforge_table, sol::state_view lua);
+void InitializeGraphicsApiLuaBindings(sol::table uiforge_table, sol::state_view lua);
 void CleanupUiForge();
-void SetupLuaGlobals();
 
-// ********************
-// * Global Variables *
-// ********************
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                              Global Variables                             ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
 
 // For Kiero
 static const unsigned D3D11_PRESENT_FUNCTION_INDEX  = 8;
@@ -71,15 +80,26 @@ IGraphicsApi* graphics_api;
 UiManager* ui_manager;
 ForgeScriptManager* script_manager;
 
+// Logging
+int max_log_size = 0;
+int max_log_files = 0;
+std::string log_file_name;
+plog::Severity logging_level;
+
+// For Lua
+lua_State* uif_lua_state = nullptr;
 std::string uiforge_root_dir;
+std::string uiforge_scripts_dir;
+std::string uiforge_modules_dir;
+std::string uiforge_resources_dir;
 
 // For cleanup
-std::atomic<HMODULE> core_module_handle(NULL);
+std::atomic<HMODULE> core_module_handle(NULL);  // I actually don't think this needs to be atomic?
 std::atomic<bool> needs_cleanup(false);
 
-// ******************
-// * Main Functions *
-// ******************
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                               Main Functions                              ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
 
 BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reserved)
 /**
@@ -99,12 +119,7 @@ BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reser
             DisableThreadLibraryCalls(h_module);                    // No need for DLL thread attach/detach
 
             core_module_handle = h_module;
-            HANDLE injected_main_thread = CreateThread( NULL,       // Default thread attributes
-                                                        0,          // Default stack size
-                                                        CoreMain,   // Function for thread to run
-                                                        NULL,       // Parameter to pass to the function
-                                                        0,          // Creation flags
-                                                        NULL);      // Thread id
+            HANDLE injected_main_thread = CreateThread(NULL, 0, CoreMain, NULL, 0, NULL);   
             if (!injected_main_thread)
             {
                 std::string err_msg("UiForge failed to start properly. Error: " + std::to_string(GetLastError()));
@@ -137,15 +152,14 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
 
     try
     {
-        uiforge_root_dir = CoreUtils::GetUiForgeRootDirectory();
+        LoadConfiguration();
 
         // Initialize logging
-        int max_log_size 			= GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_SIZE_BYTES");
-        int max_log_files 			= GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_FILES");
-        std::string log_file_name 	= uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "LOG_FILE_NAME");
-        plog::Severity logging_level= static_cast<plog::Severity>(GET_CONFIG_VAL(uiforge_root_dir, int, "LOGGING_LEVEL"));
         static plog::RollingFileAppender<plog::TxtFormatter> file_appender(log_file_name.c_str(), max_log_size, max_log_files);
         plog::init(logging_level, &file_appender);
+        PLOG_INFO << "Logging initialized";
+
+        LogConfigValues();  // Logging config values here because I have to wait until logging is initialized before I can!
     }
     catch(const std::exception& err)
     {
@@ -153,9 +167,6 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
         CoreUtils::ErrorMessageBox(err.what());
         return EXIT_FAILURE;
     }
-    
-
-    PLOG_INFO << "Logging initialized";
     
     PLOG_INFO << "Initializing Core...";
     PLOG_DEBUG << "Initializing kiero...";
@@ -171,18 +182,11 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     // Based on configuration, choose the graphics api. For now, its just D3D11.
     // TODO: Maybe add a switch statement? Something here to choose which Graphics API
     PLOG_DEBUG << "Creating GraphicsAPI object";
-    graphics_api = new D3D11GraphicsApi();
-    graphics_api->OnGraphicsApiInvoke = OnGraphicsApiInvoke;    // We could probably move this to the constructor
+    graphics_api = new D3D11GraphicsApi(OnGraphicsApiInvoke);
 
-    // Load all mods
     try
     {
-        // Set the script directory that the script manager will use
-        std::string uiforge_script_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
-        PLOG_DEBUG << "UiForge script directory: " << uiforge_script_dir;
-        
-        script_manager = new ForgeScriptManager(uiforge_script_dir);
-        PLOG_DEBUG << "ForgeScriptManager created";
+        InitializeLua();
     }
     catch(const std::exception& err)
     {
@@ -191,6 +195,7 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
         return EXIT_FAILURE;
     }
 
+    // Hook the graphics API
     kiero_is_bound = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&graphics_api->OriginalFunction, graphics_api->HookedFunction);
     if (kiero_is_bound != kiero::Status::Success)
     {
@@ -252,6 +257,121 @@ void OnGraphicsApiInvoke(void* params)
     return;
 }
 
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                             Helper Functions                              ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
+void LoadConfiguration()
+{
+    char path_to_dll[MAX_PATH];
+    if(!GetModuleFileNameA(core_module_handle, path_to_dll, MAX_PATH))
+    {
+        throw std::runtime_error(std::string("Failed to get module file name. Error: " + GetLastError()));
+    }
+    uiforge_root_dir = std::filesystem::path(path_to_dll).parent_path().parent_path().string();
+
+    uiforge_scripts_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
+
+    uiforge_modules_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_MODULES_DIR"));
+
+    uiforge_resources_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_RESOURCES_DIR"));
+
+    max_log_size = GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_SIZE_BYTES");
+
+    max_log_files = GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_FILES");
+
+    log_file_name = uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "LOG_FILE_NAME");
+
+    logging_level  = static_cast<plog::Severity>(GET_CONFIG_VAL(uiforge_root_dir, int, "LOGGING_LEVEL"));
+}
+
+void LogConfigValues()
+{
+    PLOG_DEBUG << "UiForge root directory: " << uiforge_root_dir;
+    PLOG_DEBUG << "UiForge scripts directory: " << uiforge_scripts_dir;
+    PLOG_DEBUG << "UiForge modules directory: " << uiforge_modules_dir;
+    PLOG_DEBUG << "UiForge resources directory: " << uiforge_resources_dir;
+    PLOG_DEBUG << "Max log size: " << max_log_size;
+    PLOG_DEBUG << "Max log files: " << max_log_files;
+    PLOG_DEBUG << "Log file name: " << log_file_name;
+    PLOG_DEBUG << "Logging level: " << static_cast<int>(logging_level);
+}
+
+void InitializeLua()
+{
+    // Lua state
+    uif_lua_state = lua_open();
+    if(!uif_lua_state)
+    {
+        throw std::runtime_error("Failed to create a new lua state.");
+    }
+
+    luaL_openlibs(uif_lua_state);
+    
+    // Need the sol::state_view to initialize the sol bindings
+    sol::state_view uif_sol_state_view(uif_lua_state);
+    
+    // Initialize UiForge specific Lua bindings
+    InitializeUiForgeLuaBindings(uif_sol_state_view);
+
+    // Initialize ImGui Lua bindings
+    sol_ImGui::Init(uif_sol_state_view);
+
+    script_manager = new ForgeScriptManager(uiforge_scripts_dir, uif_lua_state);
+    PLOG_DEBUG << "ForgeScriptManager created";
+}
+
+void InitializeUiForgeLuaBindings(sol::state_view lua)
+{
+    PLOG_INFO << "[+] Initializing UiForge Lua Bindings";
+    sol::table uiforge_table = lua.create_named_table("UiForge");
+
+    InitializeUiForgeLuaGlobalVariables(uiforge_table, lua);
+    
+    // Extend the Lua package path to include the modules directory and its subdirectories (one level deep).
+    // This allows Lua to find and load scripts/modules from the specified paths when using `require`.
+    //
+    // The new paths added are:
+    // - modules_path\\?.lua: Looks for scripts directly in the modules directory.
+    // - modules_path\\?\\?.lua: Allows for nested modules one level deep, e.g., modules\subdir\module.lua.
+    //
+    // Example:
+    // Given modules_path = "scripts\modules":
+    // - require("example") will search for:
+    //   - scripts\modules\example.lua
+    //   - scripts\modules\example\init.lua (if Lua supports init modules)
+    //
+    // - require("subdir.module") will search for:
+    //   - scripts\modules\subdir\module.lua
+    //   - scripts\modules\subdir\module\init.lua
+    lua["package"]["path"] = lua["package"]["path"].get<std::string>() + ";" + uiforge_modules_dir + "\\?.lua;" + uiforge_modules_dir + "\\?\\?.lua";
+
+    // Initialize Graphics API bindings
+    InitializeGraphicsApiLuaBindings(uiforge_table, lua);
+}
+
+void InitializeUiForgeLuaGlobalVariables(sol::table uiforge_table, sol::state_view lua)
+{
+    PLOG_DEBUG << "[+] Setting up UiForge Lua Globals";
+    uiforge_table["scripts_path"] = uiforge_scripts_dir;
+    PLOG_DEBUG << "[+] scripts_path: " << uiforge_table["scripts_path"].get<std::string>();
+    uiforge_table["modules_path"] = uiforge_modules_dir;
+    PLOG_DEBUG << "[+] modules_path: " << uiforge_table["modules_path"].get<std::string>();
+    uiforge_table["resources_path"] = uiforge_resources_dir;
+    PLOG_DEBUG << "[+] resources_path: " << uiforge_table["resources_path"].get<std::string>();
+}
+
+void InitializeGraphicsApiLuaBindings(sol::table uiforge_table, sol::state_view lua)
+{
+    PLOG_DEBUG << "[+] Initializing graphics api Lua bindings";
+    sol::usertype<IGraphicsApi> graphics_api_type = lua.new_usertype<IGraphicsApi>( "IGraphicsApi",
+        sol::no_constructor,
+        "CreateTextureFromFile", IGraphicsApi::CreateTextureFromFile
+    );
+
+    uiforge_table["IGraphicsApi"] = graphics_api_type;
+}
+
 void CleanupUiForge()
 {
     PLOG_INFO << "Cleaning up UiForge...";
@@ -263,13 +383,19 @@ void CleanupUiForge()
         kiero_is_bound = kiero::Status::UnknownError;
     }
 
-    // Everything blows up if this is not in a separate thread -- but I'm not
-    // entirely convinced this won't introduce some form of race condition
     if(core_module_handle)
     {
         // std::thread([]()
         // {
-            PLOG_DEBUG << "Clean up thread created...";
+            // PLOG_DEBUG << "Clean up thread created...";
+            if(uif_lua_state)
+            {
+                PLOG_DEBUG << "Closing Lua State...";
+                lua_close(uif_lua_state);
+
+                PLOG_DEBUG << "Setting state to nullptr...";
+                uif_lua_state = nullptr;
+            }
 
             if(script_manager)
             {
@@ -286,7 +412,7 @@ void CleanupUiForge()
 
             if(ui_manager)
             {
-                PLOG_INFO << "Cleaning up UI Manager";
+                PLOG_INFO << "Cleaning up UI Manager...";
                 delete ui_manager;
                 ui_manager = nullptr;
             }
@@ -297,7 +423,7 @@ void CleanupUiForge()
                 delete graphics_api;
                 graphics_api = nullptr;
             }
-            PLOG_DEBUG << "Closing clean up thread...";
+            // PLOG_DEBUG << "Closing clean up thread...";
             
         // }).detach();
 

@@ -1,22 +1,14 @@
-#include "core\forgescript_manager.h"
-#include "core\graphics_api.h"   // I don't like doing this, but I need it so I can expose some functions to Lua
-#include "core\util.h"
-#include "luajit\lua.hpp"
 #include <filesystem>
 #include <fstream>
-#include <thread>
-#include <Windows.h>
-#include "imgui\sol_ImGui.h"
+#include "core\forgescript_manager.h"
+#include "core\util.h"
+#include "luajit\lua.hpp"
 #include "plog\Log.h"
-#include "scl\SCL.hpp"
 
-
-#define FIND_SCRIPT_BY_NAME(name) [&name](const std::unique_ptr<ForgeScript>& script){ return script->file_name == name;}
-
-extern int luaopen_imgui(lua_State* L); // From sol_ImGui.h; Used to initialize the ImGui Lua Bindings
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                            ForgeScript Class                              ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
+
 ForgeScript::ForgeScript(const std::string file_name) : file_name(file_name), enabled(true)
 {
     std::ifstream file(file_name, std::ios::in | std::ios::binary);
@@ -47,7 +39,6 @@ void ForgeScript::Run(lua_State* curr_lua_state)
         const char* lua_error = lua_tostring(curr_lua_state, -1);
         std::string err_msg = "Error loading Lua Script " + file_name + ": " + lua_error;
         lua_pop(curr_lua_state, 1);
-        // TODO: Log the error
         throw std::runtime_error(err_msg);
     }
 
@@ -58,7 +49,6 @@ void ForgeScript::Run(lua_State* curr_lua_state)
         const char* lua_error = lua_tostring(curr_lua_state, -1);
         std::string err_msg = "Error calling Lua Script " + file_name + ": " + lua_error;
         lua_pop(curr_lua_state, 1);
-        // TODO: Log the error
         throw std::runtime_error(err_msg);
     }
 }
@@ -78,6 +68,11 @@ bool ForgeScript::IsEnabled() const
     return enabled;
 }
 
+std::string ForgeScript::GetFileName()
+{
+    return file_name;
+}
+
 std::string ForgeScript::GetContents()
 {
     return file_contents;
@@ -89,30 +84,14 @@ ForgeScript::~ForgeScript(){}
 // ║                          ForgeScriptManager Class                         ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
 
-ForgeScriptManager::ForgeScriptManager(std::string directory_path):scripts_path(directory_path), uif_lua_state(lua_open())
+#define FIND_SCRIPT_BY_NAME(name) [&name](const std::unique_ptr<ForgeScript>& script){ return script->GetFileName() == name;}
+
+ForgeScriptManager::ForgeScriptManager(std::string scripts_path, lua_State* uif_lua_state):scripts_path(scripts_path), uif_lua_state(uif_lua_state)
 {
     if(!uif_lua_state)
     {
-        throw std::runtime_error("Failed to create Lua state.");
+        throw std::runtime_error("Cannot construct ForgeScriptManager with null or invalid Lua State.");
     }
-
-    // Get the modules directory
-    std::string uiforge_root_dir = CoreUtils::GetUiForgeRootDirectory();
-    modules_path = std::string(scripts_path + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_MODULES_DIR"));
-    PLOG_DEBUG << "UiForge modules directory: " << modules_path;
-    
-    // Get the resources directory
-    resources_path = std::string(scripts_path + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_RESOURCES_DIR"));
-    PLOG_DEBUG << "UiForge resources directory: " << resources_path;
-
-    luaL_openlibs(uif_lua_state);
-
-    sol::state_view uif_sol_state_view(uif_lua_state);  // Need the sol::state_view to initialize the imgui bindings
-
-    InitializeUiForgeBindings(uif_sol_state_view);
-    
-    // Initialize Sol ImGui Bindings
-    sol_ImGui::Init(uif_sol_state_view);
 
     // Get all of the scripts from the directory and add them to the script vector
     for(const auto& entry : std::filesystem::directory_iterator(scripts_path))
@@ -132,7 +111,6 @@ void ForgeScriptManager::AddScript(const std::string file_name)
     catch(const std::exception& err)
     {
         PLOG_ERROR << "Error adding script: " << err.what();
-
     }
 }
 
@@ -155,7 +133,7 @@ void ForgeScriptManager::RunScripts()
         }
         catch(const std::exception& err)
         {
-            PLOG_ERROR << "Error running script " << script->file_name << ": " << err.what();
+            PLOG_ERROR << "Error running script " << script->GetFileName() << ": " << err.what();
             CoreUtils::ErrorMessageBox(err.what());
             script->Disable();
         }
@@ -171,51 +149,4 @@ ForgeScript* ForgeScriptManager::GetScript(const std::string file_name)
     return nullptr;
 }
 
-void ForgeScriptManager::InitializeUiForgeBindings(sol::state_view lua)
-{
-    PLOG_INFO << "[+] Initializing UiForge Lua Bindings";
-    sol::table uiforge_table = lua.create_named_table("UiForge");
-
-    SetupUiForgeLuaGlobals(uiforge_table, lua);
-    
-    // Add the modules directory to the lua package path as well as one level deep for those who want to store modules in sub dirs
-    lua["package"]["path"] = lua["package"]["path"].get<std::string>() + ";" + modules_path + "\\?.lua;" + modules_path + "\\?\\?.lua";
-
-    // Initialize Graphics API bindings
-    InitializeGraphicsApiLuaBindings(uiforge_table, lua);
-}
-
-void ForgeScriptManager::SetupUiForgeLuaGlobals(sol::table uiforge_table, sol::state_view lua)
-{
-    PLOG_DEBUG << "[+] Setting up UiForge Lua Globals";
-    uiforge_table["scripts_path"] = scripts_path;
-    PLOG_DEBUG << "[+] scripts_path: " << uiforge_table["scripts_path"].get<std::string>();
-    uiforge_table["modules_path"] = modules_path;
-    PLOG_DEBUG << "[+] modules_path: " << uiforge_table["modules_path"].get<std::string>();
-    uiforge_table["resources_path"] = resources_path;
-    PLOG_DEBUG << "[+] resources_path: " << uiforge_table["resources_path"].get<std::string>();
-}
-
-void ForgeScriptManager::InitializeGraphicsApiLuaBindings(sol::table uiforge_table, sol::state_view lua)
-{
-    PLOG_DEBUG << "[+] Initializing graphics api Lua bindings";
-    sol::usertype<IGraphicsApi> graphics_api_type = lua.new_usertype<IGraphicsApi>( "IGraphicsApi",
-        sol::no_constructor,
-        "CreateTextureFromFile", IGraphicsApi::CreateTextureFromFile
-    );
-
-    uiforge_table["IGraphicsApi"] = graphics_api_type;
-}
-
-ForgeScriptManager::~ForgeScriptManager()
-{
-    if(uif_lua_state)
-    {
-        PLOG_DEBUG << "Closing Lua State";
-        lua_close(uif_lua_state);
-
-        PLOG_DEBUG << "Setting state to nullptr";
-        uif_lua_state = nullptr;
-    }
-    PLOG_DEBUG << "--- End ForgeScriptManager Destructor ---";
-}
+ForgeScriptManager::~ForgeScriptManager(){}

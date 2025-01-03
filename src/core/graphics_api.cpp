@@ -28,8 +28,9 @@ ID3D11Device*           D3D11GraphicsApi::d3d11_device            = nullptr;
 ID3D11DeviceContext*    D3D11GraphicsApi::d3d11_context           = nullptr;
 ID3D11RenderTargetView* D3D11GraphicsApi::main_render_target_view = nullptr;
 
-D3D11GraphicsApi::D3D11GraphicsApi()
+D3D11GraphicsApi::D3D11GraphicsApi(void(*OnGraphicsApiInvoke)(void*) = nullptr)
 {
+    IGraphicsApi::OnGraphicsApiInvoke       = OnGraphicsApiInvoke;
     IGraphicsApi::InitializeGraphicsApi     = D3D11GraphicsApi::InitializeApi;
     IGraphicsApi::InitializeImGuiImpl       = D3D11GraphicsApi::InitializeImGui;
     IGraphicsApi::NewFrame                  = D3D11GraphicsApi::NewFrame;
@@ -46,7 +47,7 @@ void D3D11GraphicsApi::InitializeApi(void* swap_chain)
 * This function takes the IDXGISwapChain instance as input, obtains the context,
 * and uses the swap chain to obtain the description, back buffer, and create the render target view.
 *
-* @param swap_chain The IDXGISwapChain instance that contains the essential information about the DirectX 11 swap chain.
+* @param swap_chain The IDXGISwapChain instance from the target application
 */
 {
     HRESULT result = ((IDXGISwapChain*)swap_chain)->GetDevice(__uuidof(ID3D11Device), (void**)&d3d11_device);
