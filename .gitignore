@@ -11,11 +11,12 @@
 # Visual Studio Code settings
 .vscode/
 
-# Do not ignore these dlls -- need this for luajit and imgui
-# imgui is a special build that includes my lua "bindings"
-!lua51.dll
-!imgui_directx11_1.91.2.dll
-
-# ignore plog files
+# Ignore plog files
 *.txt
 *.csv
+
+# Ignore doxygen setup files
+Doxyfile
+
+# Ignore pch
+*.pch

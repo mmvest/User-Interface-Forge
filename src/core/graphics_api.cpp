@@ -1,8 +1,6 @@
-#include <stdexcept>
-#include <string>
+#include "pch.h"
 #include "core\graphics_api.h"
-#include "core\util.h"
-#include "plog\Log.h"
+
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                             IGraphicsApi Class                            ║
@@ -23,7 +21,6 @@ bool    IGraphicsApi::initialized                                               
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                           D3D11GraphicsApi Class                          ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
-#include "..\..\include\imgui\imgui_impl_dx11.h"
 ID3D11Device*           D3D11GraphicsApi::d3d11_device            = nullptr;
 ID3D11DeviceContext*    D3D11GraphicsApi::d3d11_context           = nullptr;
 ID3D11RenderTargetView* D3D11GraphicsApi::main_render_target_view = nullptr;
@@ -41,14 +38,6 @@ D3D11GraphicsApi::D3D11GraphicsApi(void(*OnGraphicsApiInvoke)(void*) = nullptr)
 }
 
 void D3D11GraphicsApi::InitializeApi(void* swap_chain)
-/**
- * @brief Initializes the DirectX 11 graphics API by performing a series of essential steps.
-
-* This function takes the IDXGISwapChain instance as input, obtains the context,
-* and uses the swap chain to obtain the description, back buffer, and create the render target view.
-*
-* @param swap_chain The IDXGISwapChain instance from the target application
-*/
 {
     HRESULT result = ((IDXGISwapChain*)swap_chain)->GetDevice(__uuidof(ID3D11Device), (void**)&d3d11_device);
     if (FAILED(result))

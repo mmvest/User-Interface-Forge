@@ -1,27 +1,37 @@
-#include <filesystem>
-#include <fstream>
+#include "pch.h"
 #include "core\forgescript_manager.h"
-#include "core\util.h"
-#include "luajit\lua.hpp"
-#include "plog\Log.h"
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                            ForgeScript Class                              ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
 
-ForgeScript::ForgeScript(const std::string file_name) : file_name(file_name), enabled(true)
+ForgeScript::ForgeScript(){}
+
+ForgeScript::ForgeScript(const std::string file_name) : file_name(file_name), enabled(false)
 {
     std::ifstream file(file_name, std::ios::in | std::ios::binary);
     if (!file)
     {
         throw std::runtime_error("Could not open file: " + file_name);
     }
+    stats = { 0 };
 
     // Read the file contents into the file_contents string
+    auto start_time = std::chrono::steady_clock::now();
     file.seekg(0, std::ios::end);
     file_contents.reserve(file.tellg());
     file.seekg(0, std::ios::beg);
     file_contents.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    auto end_time = std::chrono::steady_clock::now();
+    stats.time_to_read_file_contents = std::chrono::duration_cast<std::chrono::microseconds>(end_time-start_time).count();
+
+    stats.script_size = file_contents.size();
+
+    // hash the file contents
+    start_time = std::chrono::steady_clock::now();
+    hash = std::hash<std::string>{}(file_contents);
+    end_time = std::chrono::steady_clock::now();
+    stats.time_to_hash_file_contents = std::chrono::duration_cast<std::chrono::microseconds>(end_time-start_time).count();
 }
 
 void ForgeScript::Run(lua_State* curr_lua_state)
@@ -31,6 +41,7 @@ void ForgeScript::Run(lua_State* curr_lua_state)
         return;
     }
 
+    auto start_time = std::chrono::steady_clock::now();
     int load_result = luaL_loadbuffer(curr_lua_state, file_contents.c_str(), file_contents.size(), file_name.c_str());
     if(load_result != LUA_OK)
     {
@@ -41,16 +52,21 @@ void ForgeScript::Run(lua_State* curr_lua_state)
         lua_pop(curr_lua_state, 1);
         throw std::runtime_error(err_msg);
     }
+    auto end_time = std::chrono::steady_clock::now();
+    stats.total_time_loading_from_mem += std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
 
+    start_time = std::chrono::steady_clock::now();
     int call_result = lua_pcall(curr_lua_state, 0, 0,  0);
     if(call_result != LUA_OK)
     {
-        
         const char* lua_error = lua_tostring(curr_lua_state, -1);
         std::string err_msg = "Error calling Lua Script " + file_name + ": " + lua_error;
         lua_pop(curr_lua_state, 1);
         throw std::runtime_error(err_msg);
     }
+    end_time = std::chrono::steady_clock::now();
+    stats.total_time_executing += std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+    stats.times_executed++;
 }
 
 void ForgeScript::Enable()
@@ -76,6 +92,11 @@ std::string ForgeScript::GetFileName()
 std::string ForgeScript::GetContents()
 {
     return file_contents;
+}
+
+std::size_t ForgeScript::GetHash()
+{
+    return hash;
 }
 
 ForgeScript::~ForgeScript(){}
@@ -140,6 +161,24 @@ void ForgeScriptManager::RunScripts()
     }
 }
 
+void ForgeScriptManager::RegisterScriptSettings(sol::function callback)
+{
+    if (callback.valid())
+    {
+        settings_callbacks.push_back(callback);
+        PLOG_DEBUG << "Registered script settings callback.";
+    } 
+    else 
+    {
+        PLOG_ERROR << "Invalid script settings callback.";
+    }
+}
+
+const std::vector<sol::function>& ForgeScriptManager::GetSettingsCallbacks() const
+{
+    return settings_callbacks;
+}
+
 ForgeScript* ForgeScriptManager::GetScript(const std::string file_name)
 {
     auto iter = std::find_if(scripts.begin(), scripts.end(), FIND_SCRIPT_BY_NAME(file_name));
@@ -147,6 +186,41 @@ ForgeScript* ForgeScriptManager::GetScript(const std::string file_name)
     if(iter != scripts.end()) return iter->get();
     
     return nullptr;
+}
+
+ForgeScript* ForgeScriptManager::GetScript(const unsigned index)
+{
+    try
+    {
+        return scripts.at(index).get();
+    }
+    catch (const std::out_of_range& err)
+    {
+        PLOG_ERROR << "Script index out of range.";
+    }
+
+    return nullptr;
+}
+
+unsigned ForgeScriptManager::GetScriptCount()
+{
+    return scripts.size();
+}
+
+void ForgeScriptManager::UpdateDebugStats()
+{
+    // Reset stats every time we update because we should only include the most recent information
+    stats = { 0 };
+    for (const auto& script : scripts)
+    {
+        ForgeScript* current_script = script.get();
+        stats.script_size += current_script->stats.script_size;
+        stats.time_to_hash_file_contents += current_script->stats.time_to_hash_file_contents;
+        stats.time_to_read_file_contents += current_script->stats.time_to_read_file_contents;
+        stats.times_executed += current_script->stats.times_executed;
+        stats.total_time_executing += current_script->stats.total_time_executing;
+        stats.total_time_loading_from_mem += current_script->stats.total_time_loading_from_mem;
+    }
 }
 
 ForgeScriptManager::~ForgeScriptManager(){}

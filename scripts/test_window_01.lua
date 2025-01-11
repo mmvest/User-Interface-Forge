@@ -57,7 +57,6 @@ if ImGui.Begin("Hello, UiForge!", state.window_open, ImGuiWindowFlags.MenuBar) t
         -- Display text
         ImGui.Text("You can display text like this.")
         ImGui.BulletText("This is a bullet point!")
-        
         -- Button
         if ImGui.Button("Click Me!", 200, 50) then
             state.button_clicked = not state.button_clicked

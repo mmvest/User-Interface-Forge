@@ -1,23 +1,37 @@
 #pragma once
 
-#include <string>
-#include <vector>
-#include <memory>   // For std::unique_ptr
-#include "luajit\lua.hpp"
-#include "sol\sol.hpp"
+#include "pch.h"
 
+struct ForgeScriptDebug
+{
+    size_t time_to_read_file_contents;
+    size_t time_to_hash_file_contents;
+    size_t total_time_loading_from_mem;
+    size_t total_time_executing;
+    size_t times_executed;
+    size_t script_size;
+};
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                            ForgeScript Class                              ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
-// This class provides a way to manage individual lua scripts. Each instance
-// is a single lua file, and has access to the script file name and script
-// contents. You can run a script by calling the Run() function. Scripts can be 
-// enabled or disabled. Disabled scripts will not run when Run() is called.
-
+/**
+ * @class ForgeScript
+ * @brief This class provides a way to manage individual lua scripts.
+ * 
+ * Each instance is a single lua file, and has access to the script file name and
+ * script contents. You can run a script by calling the `Run()` function. Scripts 
+ * can be enabled or disabled. Disabled scripts will not run when `Run()` is called.
+ */
 class ForgeScript
 {
     public:
+
+        /**
+         * @brief Default ForgeScript constructor -- just creates an empty ForgeScript.
+         */
+        ForgeScript();
+
         /**
          * @brief Constructs a ForgeScript object by reading the contents of a Lua script file.
          * 
@@ -67,25 +81,54 @@ class ForgeScript
          */
         std::string GetContents();
 
+
+        /**
+         * @brief Retrieve the hash value of the file contents of the Lua script file.
+         * 
+         * @return The hash value of the file contents as a size_t.
+         */
+        std::size_t GetHash();
+
+        /**
+         * @brief Determines if two ForgeScripts are the same by comparing their file names and the hash of their contents.
+         */
+        bool operator==(const ForgeScript& other) const
+        {
+            return file_name == other.file_name && hash == other.hash;
+        }
+
         /**
          * @brief Destroys the ForgeScript object.
          */
         ~ForgeScript();
 
+        bool enabled;               // Flag to indicate if the script is enabled
+        ForgeScriptDebug stats;     // Keep track of some debug stats for each script
     private:
         std::string file_name;      // The name of the Lua file
         std::string file_contents;  // The contents of the script
-        bool enabled;               // Flag to indicate if the script is enabled
+        std::size_t hash;           // hash of the contents, for quick comparison
 };
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                          ForgeScriptManager Class                         ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
-// The ForgeScriptManager provides a set of methods for the core to use for
-// managing scripts at a higher level. This functionality includes adding and
-// removing scripts from a vector of scripts, running all the scripts, and
-// retrieving a script by name.
-
+/**
+ * @class ForgeScriptManager
+ * @brief Provides methods for managing scripts at a higher level.
+ *
+ * The ForgeScriptManager includes functionality for:
+ * 
+ * - Adding and removing scripts from a vector of scripts.
+ * 
+ * - Running all the scripts.
+ * 
+ * - Retrieving a script by name.
+ * 
+ *
+ * These methods are designed for the core to interact with and manage
+ * scripts efficiently.
+ */
 class ForgeScriptManager
 {
     public:
@@ -123,6 +166,31 @@ class ForgeScriptManager
          * @note Only enabled scripts are executed. Disabled scripts remain inactive.
          */
         void RunScripts();
+        
+        /**
+         * @brief Registers a Lua function for rendering custom script settings in the UI.
+         *
+         * This function allows Lua scripts to register callbacks that will be invoked 
+         * during the rendering of the script settings window. The registered callbacks 
+         * should use ImGui functions to define their settings UI.
+         *
+         * @param callback A valid Lua function to render custom settings. 
+         *                 The function will be executed within the ImGui rendering context.
+         *
+         * @note Ensure that the Lua function passed is valid and uses ImGui commands 
+         *       to define the desired UI elements.
+         */
+        void RegisterScriptSettings(sol::function callback);
+        
+        /**
+         * @brief Retrieves the registered Lua settings callbacks.
+         *
+         * This function returns a const reference to the vector of registered Lua functions
+         * that define custom UI settings for scripts.
+         *
+         * @return A const reference to a vector of Lua callbacks.
+         */
+        const std::vector<sol::function>& ForgeScriptManager::GetSettingsCallbacks() const;
 
         /**
          * @brief Retrieves a pointer to a specific Lua script by its file name.
@@ -134,6 +202,27 @@ class ForgeScriptManager
         ForgeScript* GetScript(const std::string file_name);
 
         /**
+         * @brief Retrieves a pointer to a specific Lua script by its index.
+         * 
+         * @param index The index to access.
+         * @return A pointer to the requested ForgeScript, or nullptr if the script does not exist.
+         * @note The returned pointer must not be deleted by the caller.
+         */
+        ForgeScript* GetScript(const unsigned index);
+
+        /**
+         * @brief Retrieve the number of scripts in the scripts list.
+         * 
+         * @return An unsigned value indicating the number of scripts in the list.
+         */
+        unsigned GetScriptCount();
+
+        /**
+         * @brief Retrieve the debug stats of all scripts managed by the script manager and update the managers debug info with it.
+         */
+        void ForgeScriptManager::UpdateDebugStats();
+
+        /**
          * @brief Destroys the ForgeScriptManager instance and releases all managed scripts.
          * 
          * @note the Lua state (`lua_State*`) provided during construction is not cleaned up 
@@ -142,8 +231,11 @@ class ForgeScriptManager
          */
         ~ForgeScriptManager();
         
+        ForgeScriptDebug stats;
+
     private:
         lua_State* uif_lua_state;                           // The lua state for the ForgeScripts to use when running
         std::string scripts_path;                           // The full path to the lua scripts that will be made into ForgeScript objects
         std::vector<std::unique_ptr<ForgeScript>> scripts;  // Vector to hold all ForgeScripts
+        std::vector<sol::function> settings_callbacks;     // Stores Lua callbacks for script settings
 };

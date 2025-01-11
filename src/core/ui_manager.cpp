@@ -1,16 +1,12 @@
-#include <Windows.h>
-#include <stdexcept>
-#include <string>
-
-#include "core\util.h"
+#include "pch.h"
 #include "core\ui_manager.h"
-#include "imgui\imgui_impl_win32.h"
+#include "core\graphics_api.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 WNDPROC UiManager::original_wndproc_ = nullptr;
 
-UiManager::UiManager(HWND target_window) : target_window_(target_window)
+UiManager::UiManager(HWND target_window) : target_window_(target_window), show_settings(false)
 {
     InitializeImGui();
 };
@@ -40,13 +36,128 @@ void UiManager::InitializeImGui()
     if(!ImGui_ImplWin32_Init(target_window_)) throw std::runtime_error("Unable to initialize ImGui Win32 Implementation.");
 }
 
-void UiManager::RenderUiElements(ForgeScriptManager& script_manager)
+void UiManager::RenderSettingsIcon(void* settings_icon)
+{
+    unsigned window_flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar;
+    if (ImGui::Begin("Settings Icon", nullptr, window_flags))
+    {
+        ImVec2 icon_size(32, 32);
+        ImVec2 cursor_pos = ImGui::GetCursorPos();
+        ImVec4 icon_tint(1,1,1,0.2);    // Make the default tint transparent
+        if(ImGui::InvisibleButton("##UiForge Settings Icon", icon_size))
+        {
+            show_settings = !show_settings;
+        }
+
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("UiForge Settings");
+            icon_tint.w = 1;            // If the icon is hovered, we want to make the alpha 1 so it will not be transparent
+        }
+
+        ImGui::SetCursorPos(cursor_pos);
+        ImGui::Image(settings_icon, icon_size, ImVec2(0,0), ImVec2(1,1), icon_tint);
+    }
+    ImGui::End();
+}
+
+void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
+{
+    static ForgeScript* selected_script;    // Static so the selected script stays selected
+    ImGuiStyle& style = ImGui::GetStyle();
+    float line_height = ImGui::GetTextLineHeightWithSpacing();
+    float checkbox_height = ImGui::GetFrameHeight();
+    if (ImGui::Begin("UiForge Settings"))
+    {
+        ImVec2 parent_size = ImGui::GetContentRegionAvail();
+        ImVec2 child_size(parent_size.x * 0.5f - ImGui::GetStyle().ItemSpacing.x * 0.5, parent_size.y * 0.75f);
+        if(ImGui::BeginChild("ForgeScript List", child_size, ImGuiChildFlags_Border))
+        {
+            for (unsigned idx = 0; idx < script_manager.GetScriptCount(); idx++)
+            {
+                ForgeScript* current_script = script_manager.GetScript(idx);
+                std::filesystem::path script_path(current_script->GetFileName());
+                bool is_current_script_selected = (selected_script == current_script);
+                if(ImGui::Selectable((std::string("##selectable_") + script_path.filename().string()).c_str(), is_current_script_selected, ImGuiSelectableFlags_AllowItemOverlap, ImVec2(0, line_height)))
+                {
+                    // If we click on a selected script and it is already selected, then deselect
+                    if (is_current_script_selected)
+                    {
+                        selected_script = nullptr;
+                    }
+                    else
+                    {
+                        selected_script = current_script;
+                    }
+                }
+                ImGui::SameLine();
+                ImGui::Checkbox((std::string("##toggle_") + script_path.filename().string()).c_str(), &current_script->enabled);
+                ImGui::SameLine();
+                ImGui::TextUnformatted(script_path.filename().string().c_str()); // Manually placing name instead of using checkbox label so that clicking the name doesn't toggle the checkbox
+            }
+            ImGui::EndChild();
+        }
+
+        ImGui::SameLine();
+
+        if(ImGui::BeginChild("ForgeScript Settings", child_size, ImGuiChildFlags_Border))
+        {
+            if(ImGui::BeginTabBar("ForgeScript Settings Tabs"))
+            {
+                if(ImGui::BeginTabItem("Settings"))
+                {
+                    ImGui::EndTabItem();
+                }
+
+                if(ImGui::BeginTabItem("Debug"))
+                {
+                    // If a script is selected, show stats about that script
+                    if(selected_script)
+                    {
+                        size_t avg_time_loading     = (selected_script->stats.times_executed) ? selected_script->stats.total_time_loading_from_mem / selected_script->stats.times_executed : 0;
+                        size_t avg_time_executing   = (selected_script->stats.times_executed) ? selected_script->stats.total_time_executing / selected_script->stats.times_executed : 0;
+                        ImGui::Text("File Name                                  : %s", selected_script->GetFileName().c_str());
+                        ImGui::Text("File Contents Size                         : %llu bytes", selected_script->stats.script_size);
+                        ImGui::Text("Time to Read File                          : %llu microseconds", selected_script->stats.time_to_read_file_contents);
+                        ImGui::Text("Time to Hash File                          : %llu microseconds", selected_script->stats.time_to_hash_file_contents);
+                        ImGui::Text("Avg Time Loading Script From Memory        : %llu microseconds", avg_time_loading);
+                        ImGui::Text("Avg Time Executing                         : %llu microseconds", avg_time_executing);
+                        ImGui::Text("Number of Times Script Executed            : %llu", selected_script->stats.times_executed);
+                    }
+
+                    // If no script is selected, show total stats
+                    if(!selected_script)
+                    {
+                        script_manager.UpdateDebugStats();
+                        size_t avg_time_loading     = (script_manager.stats.times_executed) ? script_manager.stats.total_time_loading_from_mem / script_manager.stats.times_executed : 0;
+                        size_t avg_time_executing   = (script_manager.stats.times_executed) ? script_manager.stats.total_time_executing / script_manager.stats.times_executed : 0;
+                        ImGui::Text("Total File Contents Size                   : %llu bytes", script_manager.stats.script_size);
+                        ImGui::Text("Time Reading Files                         : %llu microseconds", script_manager.stats.time_to_read_file_contents);
+                        ImGui::Text("Time Hashing Files                         : %llu microseconds", script_manager.stats.time_to_hash_file_contents);
+                        ImGui::Text("Avg Time Loading Scripts From Memory       : %llu microseconds", avg_time_loading);
+                        ImGui::Text("Avg Time Executing Scripts                 : %llu microseconds", avg_time_executing);
+                        ImGui::Text("Number of Times Scripts Executed           : %llu", script_manager.stats.times_executed);                        
+                    }
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
+            
+            ImGui::EndChild();
+        }
+    }
+    ImGui::End();
+}
+
+void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* settings_icon)
 {
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     
     // Execute all UI Mods
     // CreateTestWindow();
+    RenderSettingsIcon(settings_icon);
+    if(show_settings) RenderSettingsWindow(script_manager);
     script_manager.RunScripts();
 
     ImGui::Render();
