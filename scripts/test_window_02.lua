@@ -13,36 +13,36 @@ end
 
 -- Globals
 test_02_state = test_02_state or {
+    settings_registered = false,
     balls = {},
     ball_count = 10,
     window_size = {x = 500, y = 500},
     last_frame_time = 0
 }
 
-
 -- Helper functions
-local function random_float(min, max)
+local function RandomFloat(min, max)
     return min + math.random() * (max - min)
 end
 
-local function populate_balls(count, window_size)
+local function PopulateBalls(count, window_size)
     test_02_state.balls = {}
     for i = 1, count do
-        local radius = random_float(10, 20)
+        local radius = RandomFloat(10, 20)
         local position = {
-            x = random_float(radius, window_size.x - radius),
-            y = random_float(radius, window_size.y - radius),
+            x = RandomFloat(radius, window_size.x - radius),
+            y = RandomFloat(radius, window_size.y - radius),
         }
         local velocity = {
-            x = math.random(2) == 1 and random_float(-15, -8) or random_float(8, 15),
-            y = math.random(2) == 1 and random_float(-15, -8) or random_float(8, 15),
+            x = math.random(2) == 1 and RandomFloat(-15, -8) or RandomFloat(8, 15),
+            y = math.random(2) == 1 and RandomFloat(-15, -8) or RandomFloat(8, 15),
         }
-        local color = random_float(0xFF000000, 0xFFFFFFFF)
+        local color = RandomFloat(0xFF000000, 0xFFFFFFFF)
         table.insert(test_02_state.balls, Ball:new(position, velocity, radius, color))
     end
 end
 
-local function update_balls(delta_time, window_size)
+local function UpdateBalls(delta_time, window_size)
     for i = 1, #test_02_state.balls do
         local ball = test_02_state.balls[i]
 
@@ -72,21 +72,30 @@ local function update_balls(delta_time, window_size)
     end
 end
 
-local function render_balls(window_pos)
+local function RenderBalls(window_pos)
     local draw_list = ImGui.GetWindowDrawList()
     for _, ball in ipairs(test_02_state.balls) do
         draw_list:AddCircleFilled(ImVec2.new(window_pos.x + ball.position.x, window_pos.y + ball.position.y), ball.radius, ball.color)
     end
 end
 
-if ImGui.Begin("Bouncing Balls Simulation") then
+-- Register settings function
+local function Settings()
     -- Slider to adjust the number of balls
     local value, clicked = ImGui.SliderInt("Number of Balls", test_02_state.ball_count, 1, 100)
     if value ~= test_02_state.ball_count and clicked then
         test_02_state.ball_count = value
-        populate_balls(test_02_state.ball_count, test_02_state.window_size)
+        PopulateBalls(test_02_state.ball_count, test_02_state.window_size)
     end
+end
 
+if test_02_state.settings_registered == false then
+    UiForge.RegisterScriptSettings(Settings)
+    test_02_state.settings_registered = true
+end
+
+
+if ImGui.Begin("Bouncing Balls Simulation") then
     -- for key, value in pairs(test_02_state.balls) do
     --     ImGui.Text(""..key..": ".. tostring(value))
     -- end
@@ -103,13 +112,13 @@ if ImGui.Begin("Bouncing Balls Simulation") then
 
     -- Initialize balls if needed
     if #test_02_state.balls ~= test_02_state.ball_count then
-        populate_balls(test_02_state.ball_count, test_02_state.window_size)
+        PopulateBalls(test_02_state.ball_count, test_02_state.window_size)
     end
 
     -- Update and render balls
-    update_balls(delta_time, test_02_state.window_size)
+    UpdateBalls(delta_time, test_02_state.window_size)
 
-    render_balls(window_pos)
+    RenderBalls(window_pos)
 
     ImGui.End()
 end

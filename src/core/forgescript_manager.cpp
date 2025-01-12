@@ -69,6 +69,26 @@ void ForgeScript::Run(lua_State* curr_lua_state)
     stats.times_executed++;
 }
 
+void ForgeScript::RunSettingsCallback()
+{
+    if(!IsEnabled())
+    {
+        return;
+    }
+
+    if(!settings_callback)
+    {
+        throw std::runtime_error(std::string("Script " + file_name + " settings callback has not been set and cannot be called").c_str());
+    }
+
+    auto result = settings_callback();
+    if(!result.valid())
+    {
+        sol::error err = result;
+        throw std::runtime_error(std::string("Script " + file_name + " settings callback failed with error: " + err.what()).c_str());
+    }  
+}
+
 void ForgeScript::Enable()
 {
     enabled = true;
@@ -150,6 +170,7 @@ void ForgeScriptManager::RunScripts()
     {
         try
         {
+            currently_executing_script = script.get();
             script->Run(uif_lua_state);
         }
         catch(const std::exception& err)
@@ -161,22 +182,19 @@ void ForgeScriptManager::RunScripts()
     }
 }
 
-void ForgeScriptManager::RegisterScriptSettings(sol::function callback)
+void ForgeScriptManager::RegisterScriptSettings(sol::protected_function callback)
 {
-    if (callback.valid())
+    // Makes sure the callback is valid and that the reference to the currently executing script isn't null
+    // although the case where the executing script is null should never happen.
+    if (callback.valid() && currently_executing_script)
     {
-        settings_callbacks.push_back(callback);
-        PLOG_DEBUG << "Registered script settings callback.";
+        currently_executing_script->settings_callback = callback;
+        PLOG_DEBUG << "Registered script settings callback for " << currently_executing_script->GetFileName();
     } 
     else 
     {
         PLOG_ERROR << "Invalid script settings callback.";
     }
-}
-
-const std::vector<sol::function>& ForgeScriptManager::GetSettingsCallbacks() const
-{
-    return settings_callbacks;
 }
 
 ForgeScript* ForgeScriptManager::GetScript(const std::string file_name)

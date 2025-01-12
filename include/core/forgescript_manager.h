@@ -50,6 +50,14 @@ class ForgeScript
         void Run(lua_State* curr_lua_state);
 
         /**
+         * @brief Executes the Lua Scripts registered settings callback function.
+         * 
+         * @throws std::runtime_error If the function fails to execute or the settings callback has not been set. 
+         * @note This function does nothing if the script is disabled (see IsEnabled()).
+         */
+        void RunSettingsCallback();
+
+        /**
          * @brief Enables the script, allowing it to be executed.
          */
         void Enable();
@@ -102,12 +110,13 @@ class ForgeScript
          */
         ~ForgeScript();
 
-        bool enabled;               // Flag to indicate if the script is enabled
-        ForgeScriptDebug stats;     // Keep track of some debug stats for each script
+        bool enabled;                               // Flag to indicate if the script is enabled
+        ForgeScriptDebug stats;                     // Keep track of some debug stats for each script
+        sol::protected_function settings_callback;  // Function to run to display script settings
     private:
-        std::string file_name;      // The name of the Lua file
-        std::string file_contents;  // The contents of the script
-        std::size_t hash;           // hash of the contents, for quick comparison
+        std::string file_name;                      // The name of the Lua file
+        std::string file_contents;                  // The contents of the script
+        std::size_t hash;                           // hash of the contents, for quick comparison
 };
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -170,9 +179,9 @@ class ForgeScriptManager
         /**
          * @brief Registers a Lua function for rendering custom script settings in the UI.
          *
-         * This function allows Lua scripts to register callbacks that will be invoked 
-         * during the rendering of the script settings window. The registered callbacks 
-         * should use ImGui functions to define their settings UI.
+         * This function allows the currently running lua script to register a callback 
+         * that will be invoked during the rendering of the script settings window. The 
+         * registered callback should use ImGui functions to define their settings UI.
          *
          * @param callback A valid Lua function to render custom settings. 
          *                 The function will be executed within the ImGui rendering context.
@@ -180,17 +189,7 @@ class ForgeScriptManager
          * @note Ensure that the Lua function passed is valid and uses ImGui commands 
          *       to define the desired UI elements.
          */
-        void RegisterScriptSettings(sol::function callback);
-        
-        /**
-         * @brief Retrieves the registered Lua settings callbacks.
-         *
-         * This function returns a const reference to the vector of registered Lua functions
-         * that define custom UI settings for scripts.
-         *
-         * @return A const reference to a vector of Lua callbacks.
-         */
-        const std::vector<sol::function>& ForgeScriptManager::GetSettingsCallbacks() const;
+        void RegisterScriptSettings(sol::protected_function callback);
 
         /**
          * @brief Retrieves a pointer to a specific Lua script by its file name.
@@ -237,5 +236,5 @@ class ForgeScriptManager
         lua_State* uif_lua_state;                           // The lua state for the ForgeScripts to use when running
         std::string scripts_path;                           // The full path to the lua scripts that will be made into ForgeScript objects
         std::vector<std::unique_ptr<ForgeScript>> scripts;  // Vector to hold all ForgeScripts
-        std::vector<sol::function> settings_callbacks;     // Stores Lua callbacks for script settings
+        ForgeScript* currently_executing_script;            // Pointer to the currently executing ForgeScript
 };

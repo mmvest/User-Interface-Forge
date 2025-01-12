@@ -64,14 +64,17 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
 void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
 {
     static ForgeScript* selected_script;    // Static so the selected script stays selected
-    ImGuiStyle& style = ImGui::GetStyle();
-    float line_height = ImGui::GetTextLineHeightWithSpacing();
-    float checkbox_height = ImGui::GetFrameHeight();
+
     if (ImGui::Begin("UiForge Settings"))
     {
-        ImVec2 parent_size = ImGui::GetContentRegionAvail();
-        ImVec2 child_size(parent_size.x * 0.5f - ImGui::GetStyle().ItemSpacing.x * 0.5, parent_size.y * 0.75f);
-        if(ImGui::BeginChild("ForgeScript List", child_size, ImGuiChildFlags_Border))
+        ImGuiStyle& style = ImGui::GetStyle();
+        float line_height = ImGui::GetTextLineHeightWithSpacing();
+        float checkbox_height = ImGui::GetFrameHeight();
+        ImVec2 parent_window_size = ImGui::GetContentRegionAvail();
+        ImVec2 forgescript_list_window_size(parent_window_size.x * 0.3f - style.ItemSpacing.x * 0.5, parent_window_size.y * 0.75f);
+        ImVec2 settings_child_window_size(parent_window_size.x * 0.7f - style.ItemSpacing.x * 0.5, parent_window_size.y * 0.75f);
+        
+        if(ImGui::BeginChild("ForgeScript List", forgescript_list_window_size, ImGuiChildFlags_Border))
         {
             for (unsigned idx = 0; idx < script_manager.GetScriptCount(); idx++)
             {
@@ -100,12 +103,25 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
 
         ImGui::SameLine();
 
-        if(ImGui::BeginChild("ForgeScript Settings", child_size, ImGuiChildFlags_Border))
+        if(ImGui::BeginChild("ForgeScript Settings", settings_child_window_size, ImGuiChildFlags_Border))
         {
             if(ImGui::BeginTabBar("ForgeScript Settings Tabs"))
             {
                 if(ImGui::BeginTabItem("Settings"))
                 {
+                    // If the selected script is not null and it has a callback
+                    if(selected_script && selected_script->settings_callback)
+                    {
+                        try
+                        {
+                            selected_script->RunSettingsCallback();
+                        }
+                        catch(const std::exception& err)
+                        {
+                            selected_script->Disable();
+                            PLOG_ERROR << err.what();
+                        }
+                    }
                     ImGui::EndTabItem();
                 }
 

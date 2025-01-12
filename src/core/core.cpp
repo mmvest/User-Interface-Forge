@@ -359,6 +359,9 @@ void InitializeLua()
 
     luaL_openlibs(uif_lua_state);
     
+    script_manager = new ForgeScriptManager(uiforge_scripts_dir, uif_lua_state);
+    PLOG_DEBUG << "ForgeScriptManager created";
+
     // Need the sol::state_view to initialize the sol bindings
     sol::state_view uif_sol_state_view(uif_lua_state);
     
@@ -368,8 +371,6 @@ void InitializeLua()
     // Initialize ImGui Lua bindings
     sol_ImGui::Init(uif_sol_state_view);
 
-    script_manager = new ForgeScriptManager(uiforge_scripts_dir, uif_lua_state);
-    PLOG_DEBUG << "ForgeScriptManager created";
 }
 
 
@@ -389,7 +390,7 @@ void InitializeLua()
  *   - `modules_path\\?\\?.lua`: For nested modules one level deep.
  * - Calls `InitializeGraphicsApiLuaBindings` to bind the graphics API.
  *
- * @note This function assumes the `uiforge_modules_dir` is correctly initialized.
+ * @note This function assumes the `uiforge_modules_dir` and `script_manager` is correctly initialized.
  */
 void InitializeUiForgeLuaBindings(sol::state_view lua)
 {
@@ -418,6 +419,12 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
 
     // Initialize Graphics API bindings
     InitializeGraphicsApiLuaBindings(uiforge_table, lua);
+
+    // ForgeScriptManager Bindings
+    uiforge_table["RegisterScriptSettings"] = [](sol::protected_function callback)
+    {
+        script_manager->RegisterScriptSettings(callback); // THIS IS DANGEROUS --> better solution would be to turn script manager static.
+    };
 }
 
 /**
@@ -472,6 +479,15 @@ void CleanupUiForge()
 
     if(core_module_handle)
     {
+        
+        if(script_manager)
+        {
+            PLOG_INFO << "Cleaning up script manager...";
+            delete script_manager;
+            script_manager = nullptr;
+        }
+
+        // MUST COME AFTER SCRIPT MANAGER -- ForgeScripts reference lua state during destruction of sol::protected_function
         if(uif_lua_state)
         {
             PLOG_DEBUG << "Closing Lua State...";
@@ -479,13 +495,6 @@ void CleanupUiForge()
 
             PLOG_DEBUG << "Setting state to nullptr...";
             uif_lua_state = nullptr;
-        }
-
-        if(script_manager)
-        {
-            PLOG_INFO << "Cleaning up script manager...";
-            delete script_manager;
-            script_manager = nullptr;
         }
 
         if(graphics_api)
