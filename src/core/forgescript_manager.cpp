@@ -78,7 +78,9 @@ void ForgeScript::RunSettingsCallback()
 
     if(!settings_callback)
     {
-        throw std::runtime_error(std::string("Script " + file_name + " settings callback has not been set and cannot be called").c_str());
+        // throw std::runtime_error(std::string("Script " + file_name + " settings callback has not been set and cannot be called").c_str());
+        // Instead of throwing an error, decided just to return for now. Might still log a warning message though.
+        return;
     }
 
     auto result = settings_callback();

@@ -58,7 +58,7 @@ class UiManager
          */
         void CreateTestWindow();
 
-        ImGuiContext* mod_context_;
+        ImGuiContext* mod_context;
 
     private:
         /**
@@ -74,8 +74,8 @@ class UiManager
          */
         static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
         
-        static WNDPROC original_wndproc_;                                                   // Static so I can use it in WndProc
-        HWND target_window_;
+        static WNDPROC original_wndproc;    // Static so I can use it in WndProc
+        HWND target_window;
         bool show_settings;
 
 };

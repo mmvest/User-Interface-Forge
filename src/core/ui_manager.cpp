@@ -4,9 +4,9 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-WNDPROC UiManager::original_wndproc_ = nullptr;
+WNDPROC UiManager::original_wndproc = nullptr;
 
-UiManager::UiManager(HWND target_window) : target_window_(target_window), show_settings(false)
+UiManager::UiManager(HWND target_window) : target_window(target_window), show_settings(false)
 {
     InitializeImGui();
 };
@@ -25,15 +25,15 @@ void UiManager::InitializeImGui()
  * @param none
  */
 {
-    original_wndproc_ = (WNDPROC)SetWindowLongPtrW(target_window_, GWLP_WNDPROC, (LONG_PTR)WndProc);
-    if(!original_wndproc_) throw std::runtime_error("Failed to set new address for the window procedure. Error: " + std::to_string(GetLastError()));
+    original_wndproc = (WNDPROC)SetWindowLongPtrW(target_window, GWLP_WNDPROC, (LONG_PTR)WndProc);
+    if(!original_wndproc) throw std::runtime_error("Failed to set new address for the window procedure. Error: " + std::to_string(GetLastError()));
     
-    mod_context_ = ImGui::CreateContext();
+    mod_context = ImGui::CreateContext();
     
     ImGuiIO& io = ImGui::GetIO();
     
     io.ConfigFlags = ImGuiConfigFlags_NoMouseCursorChange;
-    if(!ImGui_ImplWin32_Init(target_window_)) throw std::runtime_error("Unable to initialize ImGui Win32 Implementation.");
+    if(!ImGui_ImplWin32_Init(target_window)) throw std::runtime_error("Unable to initialize ImGui Win32 Implementation.");
 }
 
 void UiManager::RenderSettingsIcon(void* settings_icon)
@@ -109,8 +109,7 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
             {
                 if(ImGui::BeginTabItem("Settings"))
                 {
-                    // If the selected script is not null and it has a callback
-                    if(selected_script && selected_script->settings_callback)
+                    if(selected_script)
                     {
                         try
                         {
@@ -181,16 +180,16 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
 
 void UiManager::CleanupUiManager()
 {
-    if(mod_context_)
+    if(mod_context)
     {
         ImGui_ImplWin32_Shutdown();
-        ImGui::DestroyContext(mod_context_);
+        ImGui::DestroyContext(mod_context);
     }
 
 
-    if(original_wndproc_)
+    if(original_wndproc)
     {
-        if(!SetWindowLongPtrW(target_window_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_wndproc_)))
+        if(!SetWindowLongPtrW(target_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_wndproc)))
         {
             std::string err_msg = std::string("Failed to restore original window procedure. Error: ") + std::to_string(GetLastError());
             // TODO: Log error message
@@ -201,7 +200,7 @@ void UiManager::CleanupUiManager()
 LRESULT WINAPI UiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
-    return CallWindowProcW(original_wndproc_, hWnd, msg, wParam, lParam);
+    return CallWindowProcW(original_wndproc, hWnd, msg, wParam, lParam);
 }
 
 void UiManager::CreateTestWindow()
