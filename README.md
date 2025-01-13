@@ -18,7 +18,7 @@ UiForge has three main parts:
 
 1. **The Injector (UiForge.exe)** - This is responsible for getting the uif_core DLL into the target application and starting it.
 
-Currently this project only supports 64-bit DirectX11, but the goal is to support DirectX12, OpenGL, Vulkan, and 32-bit building.
+Currently this project only supports 64-bit DirectX11, but the goal is to support DirectX12, OpenGL, and Vulkan.
 
 <div align="center">
 
@@ -72,12 +72,14 @@ Note that NOT closing this dialog box and then attempting to re-inject may cause
 
 UiForge requires a specific file structure to function properly. By default, the following structure is expected:
 ```
-project-root/ 
+project-root/
+├── UiForge.exe     # The actual executable to run
 ├── config          # Configuration file for UiForge 
 ├── bin/ 
 │ └── uif_core.dll  # Core DLL for UiForge 
-├── scripts/        # Directory for Lua scripts to be loaded and run 
-│ └── modules/      # Subdirectory for custom libraries or modules
+└── scripts/        # Directory for Lua scripts to be loaded and run 
+  ├── modules/      # Subdirectory for custom libraries or modules
+  └── resources/    # Subdirectory containing images and other resources for UiForge and scripts.
 ```
 This structure is fully configurable through the `config` file, allowing you to customize the locations of the core DLL, scripts, and modules to suit your project setup.
 
@@ -95,13 +97,13 @@ UiForge simplifies the management and creation of custom injected UI elements by
 
 - **Global ImGui Bindings**: Lua ImGui bindings (powered by [Sol2](https://github.com/ThePhD/sol2)) are globally exposed, so there’s no need to require or load additional DLLs or modules.
 
-- **Type Hint Support**: A `meta.lua` file, located in `scripts\modules`, provides type hints for most supported functions. While not exhaustive or perfect, it offers a helpful guide. For a full list of supported functions, refer to `include/imgui/sol_ImGui.h`.
+- **Type Hint Support**: An `imgui.lua` file, located in `scripts\modules\imgui`, provides type hints for most supported functions. While not exhaustive or perfect, it offers a helpful guide. For a full list of supported functions, refer to `include/imgui/sol_ImGui.h`.
 
 - **Custom Modules**: Use the `scripts\modules` directory to add any custom libraries or lua modules you want to access in your scripts.
 
-- **Example Script**: The [`test_window.lua`](scripts/test_window.lua) file demonstrates basic use cases for the ImGui bindings, serving as a helpful starting point.
+- **Example Script**: The [`test_window_01.lua`](scripts/test_window_01.lua) and [`test_window_02.lua`](scripts/test_window_01.lua) files demonstrate basic use cases for the ImGui bindings and UiForge, serving as a helpful starting point.
 
-- **Static Linking for Simplicity**: All third-party dependencies (ImGui, Kiero, LuaJIT, etc.) are statically linked into UiForge. This eliminates the need to manage DLLs or download and install additional libraries. All libraries required for the build can be found in the `libs` folder.
+- **Static Linking for Simplicity**: All third-party dependencies (ImGui, Kiero, LuaJIT, etc.) are statically linked into UiForge. This eliminates the need to manage DLLs or download and install additional libraries. All libraries required for the build can be found in the [`libs`](libs) folder.
 
 - **Customizable Configurations**: Various configurations are exposed through the `config` file, enabling customization of script and module directories, the location of the core DLL, and more.
 
@@ -110,12 +112,14 @@ UiForge simplifies the management and creation of custom injected UI elements by
 Examples are incoming -- currently working on a project that will be using this!
 
 ## Roadmap
-Below are some features that I want to implement. The current implementation is what I would call a rough draft or proof of concept to show that it can be done and to get my other project off the ground. 
-- Implement a control panel for `uif_core` that allows the user to enable/disable modules, load/unload modules, get debug information (such as amount of time elapsed to run each module and debug logs), etc.
-- Add support for DirectX 12, vulkan, and openGL
-- Keybind configuration
-- Add in-application scripting/running that is fully sandboxed as to not crash the app.
-- Add 32-bit support
+The current implementation is what I would call a rough draft or proof of concept to show that it can be done and to get my other project off the ground. Here are the remaining goal marks for the project. 
+- **v0.4.0** - Control (settings) panel fully implemented, allowing the user to enable/disable and load/unload/reload scripts. Also allows scripts to register a settings callback to expose values/settings for the user to configure. Also display debug information abotu the scripts (e.g. time to execute, memory used, etc.).
+
+- **v0.5.0** - Add a basic in-app lua editor, allowing you to edit scripts, create new scripts, and run the scripts in whatever app UiForge is injected into. Attempt to "sandbox" this enough as to prevent crashing the application if something goes wrong.
+
+- **v0.6.0** - Add support for DirectX12, Vulkan, and OpenGL.
+
+- **v1.0.0** - Everything is nice and polished! All systems functioning adequately, code/commenting styling consistent across all modules, common errors and bugs handled and logged appropriately, general code cleanup, documentation completed, etc.
 
 ## Contributing
 
@@ -130,7 +134,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE.txt) f
 ## Acknowledgements
 
 - **[Dear ImGui](https://github.com/ocornut/imgui)** - The graphics library 
-- **[Kiero Library](https://github.com/Rebzzel/kiero)** - GPU hooking library
+- **[Kiero Library](https://github.com/Rebzzel/kiero)** - Graphics API hooking library
 - **[MinHook](https://github.com/TsudaKageyu/minhook)** - Used by Kiero for hooking
 - **[Sol2](https://github.com/ThePhD/sol2)** - C++/Lua binding library
 - **[plog](https://github.com/SergiusTheBest/plog)** - Logging framework
