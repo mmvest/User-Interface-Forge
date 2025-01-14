@@ -98,8 +98,8 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
                 ImGui::SameLine();
                 ImGui::TextUnformatted(script_path.filename().string().c_str()); // Manually placing name instead of using checkbox label so that clicking the name doesn't toggle the checkbox
             }
-            ImGui::EndChild();
         }
+        ImGui::EndChild();
 
         ImGui::SameLine();
 
@@ -157,9 +157,8 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
                 }
                 ImGui::EndTabBar();
             }
-            
-            ImGui::EndChild();
         }
+        ImGui::EndChild();
     }
     ImGui::End();
 }
