@@ -1,7 +1,7 @@
 -- WARNING: DO NOT REQUIRE THIS FILE -- IT WILL LIKELY BREAK THE ENVIRONMENT
 -- FOR INTELLISENSE USE ONLY
 
-local UiForge = {}
+UiForge = {}
 
 UiForge.scripts_path    = ""    -- Contains the path to the `scripts` directory
 UiForge.modules_path    = ""    -- Contains the path to the `modules` directory
