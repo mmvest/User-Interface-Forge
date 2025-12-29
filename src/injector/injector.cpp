@@ -1,19 +1,15 @@
 /**
- * @file uif_injector.cpp
- * @version 0.2.1
- * @brief Entry point for UiForge. Injects the core dll into a specified process with the desired configuration.
- * 
- * This application allows the user to inject the core dll into a target process. Additionally, the user can specify
- * optional DLL files to inject.
+ * @file injector.cpp
+ * @version 0.2.2
+ * @brief "Entry point" for UiForge. Injects the core dll into a specified process.
  * 
  * @example	UiForge.exe --help
- * 			UiForge.exe pcsx2-qt.exe
- * 			UiForge.exe pcsx2-qt.exe my_module_01.dll my_module_02.dll
+ * 			UiForge.exe -n pcsx2-qt.exe
+ * 			UiForge.exe -p 1234
  * 
- * @note Ensure that the specified DLLs are compatible with the chosen bitness and graphics API.
- *       Currently only supports 64-bit d3d11 applications.
- *       If you are providing additional modules, be sure they are either in your path or
- *       somewhere the target application can find.
+ * @note
+ *   - The injector must be run with sufficient privileges to open the target process.
+ *   - The injector and target process must be 64-bit.
  * 
  * @warning You use this module at your own risk. You are responsible for how you use this code.
  *          I highly recommend keeping this module very far away from any anti-cheats.
@@ -32,164 +28,285 @@
 #include <vector>
 #include <stdexcept>
 #include <filesystem>
-#include "injector\util.h"
+
 #include "scl\SCL.hpp"
 #include "plog\Log.h"
 #include "plog\Initializers\RollingFileInitializer.h"
 #include "plog\Appenders\ConsoleAppender.h"
 
+// Need to define this prior to including inject_tools.h so I can override their INJECT_LOG macro.
+// This macro is just the inject_tools way of logging fatal errors.
+#define INJECT_LOG(...) InjectLogToPlog(__VA_ARGS__)
+
+inline void InjectLogToPlog(const wchar_t* fmt, ...)
+{
+    wchar_t buf[1024];
+
+    va_list args;
+    va_start(args, fmt);
+    _vsnwprintf_s(buf, _countof(buf), _TRUNCATE, fmt, args);
+    va_end(args);
+
+    PLOG_ERROR << buf;
+}
+#include "..\..\libs\InjectTools\inject_tools.h"
+
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
-#define MIN_NUM_ARGS		2
-#define BASE_10				10
-#define DEFAULT_STACK_SIZE	0
+#define MIN_NUM_ARGS 2
+#define BASE_10 10
+#define DEFAULT_STACK_SIZE 0
 #define CONFIG_FILE "config"
-#define USAGE \
-L"Usage: %s <process_name>\n" \
-L"\n" \
-L"Parameters:\n" \
-L"  <process_name>    Specifies the name of the target process to start UiForge in.\n" \
-L"\n" \
-L"Options:\n" \
-L"  -h, -help, --help, /? \n" \
-L"                    Displays this usage statement and exits.\n" \
-L"\n" \
-L"Example:\n" \
-L"  %s --help\n" \
-L"  %s target_app.exe\n" \
-L"\n"
 
-UserOptions user_options;
+// Global flags and parameters
+BOOL            is_using_pid            = FALSE;
+BOOL            is_using_name           = FALSE;
 
-bool ParseArgs(int argc, wchar_t** argv)
+unsigned long   target_process_pid      = 0;
+wchar_t*        target_process_name     = NULL;
+
+#include <windows.h>
+#include <tlhelp32.h>
+
+/**
+ * @brief Checks whether a specific DLL is loaded in a target process.
+ *
+ * Enumerates all modules loaded by the target process and performs a
+ * case-sensitive comparison against the provided DLL path. Returns TRUE
+ * if a matching module is found; otherwise, returns FALSE.
+ *
+ * @param pid The process ID of the target process to inspect.
+ * @param target_dll_path Full path of the DLL to search for (e.g., "C:\my_dir\example.dll").
+ *
+ * @return TRUE if the specified DLL is loaded in the target process; FALSE otherwise.
+ */
+
+
+BOOL IsDllLoadedInProcess(DWORD pid, const wchar_t* target_dll_path)
 {
-	if(argc < MIN_NUM_ARGS) return false;
+    HANDLE dll_list_snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
+    MODULEENTRY32W current_dll = { 0 };
+    current_dll.dwSize = sizeof(MODULEENTRY32W);
 
-	// Iterate over the arguments
-	user_options.target_process_name = argv[1];
+    BOOL found = FALSE;
 
-	for(unsigned arg_idx = 2; arg_idx < argc; arg_idx++)
-	{
-		if(!std::filesystem::exists(argv[arg_idx]))
-		{
-			PLOG_FATAL << L"[!] The module " << argv[arg_idx] << L" could not be found.";
-			return false;
-		}
-		
-		user_options.modules.emplace_back(argv[arg_idx]);
-	}
+    if (dll_list_snapshot == INVALID_HANDLE_VALUE)
+    {
+        PLOG_ERROR << L"CreateToolhelp32Snapshot failed to retrieve dll list snapshot. Error: "
+           << _wcserror(GetLastError())
+           << L" (0x"
+           << std::setw(8) << std::setfill(L'0') << std::hex
+           << GetLastError()
+           << L")";
+        goto dll_check_cleanup;
+    }
 
-	return true;
+    if (!Module32FirstW(dll_list_snapshot, &current_dll))
+    {
+        PLOG_ERROR << L"ModuleEntry32W failed to retrieve first module in dll list. Error: "
+           << _wcserror(GetLastError())
+           << L" (0x"
+           << std::setw(8) << std::setfill(L'0') << std::hex
+           << GetLastError()
+           << L")";
+        goto dll_check_cleanup;
+    }
+
+    do
+    {
+        if (wcscmp(current_dll.szExePath, target_dll_path) == 0)
+        {
+            found = TRUE;
+            break;
+        }
+    }
+    while (Module32NextW(dll_list_snapshot, &current_dll));
+
+dll_check_cleanup:
+    if (dll_list_snapshot) { CloseHandle(dll_list_snapshot); }
+    return found;
+}
+
+
+/**
+ * @brief Prints usage instructions to the console.
+ *
+ * Displays the program name, accepted command-line options, and their descriptions.
+ *
+ * @param prog_name The name or path of the executable (typically argv[0]).
+ */
+void print_usage(const wchar_t* prog_name)
+{
+    wprintf(L"[+] Usage: %s [-p pid | -n process_name] [-h | -help | --help]\n", prog_name);
+    wprintf(L"[+] Options:\n");
+    wprintf(L"[+]   -p pid             Target process by PID\n");
+    wprintf(L"[+]   -n name            Target process by executable name\n");
+    wprintf(L"[+]   -h, -help, --help  Show this usage information\n");
+}
+
+/**
+ * @brief Parses and validates command-line arguments.
+ *
+ * Sets global flags indicating how to identify the target process and
+ * which payload to inject. Validates that exactly one target selector
+ * (PID or name) and one payload selector (DLL or shellcode) have been provided.
+ * Prints errors or usage information if validation fails.
+ *
+ * @param argc Number of command-line arguments.
+ * @param argv Array of wide-character argument strings.
+ * @return TRUE if arguments are valid and parsing succeeded; FALSE otherwise.
+ */
+
+BOOL parse_args(int argc, wchar_t* argv[])
+{
+    for (int idx = 1; idx < argc; ++idx)
+    {
+        if (wcscmp(argv[idx], L"-p") == 0)
+        {
+            is_using_pid = TRUE;
+            is_using_name = FALSE;
+            ++idx < argc ? (target_process_pid = wcstoul(argv[idx], NULL, 10)) : (void)0;
+        }
+        else if (wcscmp(argv[idx], L"-n") == 0)
+        {
+            is_using_name = TRUE;
+            is_using_pid = FALSE;
+            ++idx < argc ? (target_process_name = argv[idx]) : (void)0;
+        }
+
+        else if (wcscmp(argv[idx], L"-h") == 0 || wcscmp(argv[idx], L"-help") == 0 || wcscmp(argv[idx], L"--help") == 0)
+        {
+            print_usage(argv[0]);
+            return FALSE;
+        }
+    }
+	PLOG_DEBUG << L"Arguments:";
+	PLOG_DEBUG << L"is_using_pid: " << is_using_pid;
+	if(is_using_pid) PLOG_DEBUG << L"PID: " << target_process_pid;
+	PLOG_DEBUG << L"is_using_name: " << is_using_name;
+	if(is_using_name) PLOG_DEBUG << L"Process Name: " << target_process_name;
+
+    // Validate parsed arguments
+    if (is_using_pid && target_process_pid == 0)
+    {
+        PLOG_ERROR << L"PID must be non-zero.";
+        return FALSE;
+    }
+
+    if (is_using_name && target_process_name == NULL)
+    {
+        PLOG_ERROR << L"Process name must be specified.";
+        return FALSE;
+    }
+
+    return TRUE;
 }
 
 int wmain(int argc, wchar_t** argv)
 {
-	int return_code					= EXIT_FAILURE;
-	HANDLE target_process			= NULL;
-	void* inject_address			= NULL;
-	size_t num_bytes_to_write		= 0;
-	size_t num_bytes_written		= 0;
-	const wchar_t* list_of_modules 	= NULL;
-	bool did_write_memory			= FALSE;
-	HMODULE k32dll					= NULL;
-	FARPROC load_lib_addr			= NULL;
-	HANDLE injected_thread			= NULL;
+	BOOL return_code = EXIT_FAILURE;
+	HANDLE target_process = NULL;
 
-	// Read in data from config file
+	// Read in data from config file, specifically the name of the dll to inject
+	// and the logging level.
 	scl::config_file uif_config(CONFIG_FILE, scl::config_file::READ);
-	std::string core_dll = uif_config.get<std::string>("CORE_DLL");
-	user_options.modules.emplace_back(std::filesystem::absolute(core_dll).wstring()); // Make sure the core_dll is the first module in the vector
+    
+	std::wstring core_dll_path = std::filesystem::absolute(uif_config.get<std::string>("CORE_DLL")).wstring(); // TODO: THIS IS THE PROBLEM
+	plog::Severity logging_level = static_cast<plog::Severity>(uif_config.get<int>("LOGGING_LEVEL"));
 
 	// Initialize Logging
-	plog::Severity logging_level	= static_cast<plog::Severity>(uif_config.get<int>("LOGGING_LEVEL"));
 	static plog::ConsoleAppender<plog::TxtFormatter> console_appender;
 	plog::init(logging_level, &console_appender);
 
-	if(!ParseArgs(argc, argv))
-	{
-		goto cleanup;
-	}
+    PLOG_DEBUG << L"LOGGING LEVEL: " << logging_level;
+    PLOG_DEBUG << L"CORE DLL PATH: " << core_dll_path;
 
-	unsigned long target_pid = GetProcessIdByName(user_options.target_process_name.c_str());
-	if (target_pid == 0)
-	{
-		goto cleanup;
-	}
+	PLOG_DEBUG << L"Parsing arguments...";
+    if (!parse_args(argc, argv))
+    {
+        print_usage(argv[0]);
+        goto cleanup;
+    }
+	PLOG_DEBUG << L"Arguments parsed successfully.";
 
-	target_process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, target_pid);
+    if (is_using_name)
+    {
+		PLOG_DEBUG << L"Process name: " << target_process_name;
+        if (!GetPIDByName(target_process_name, &target_process_pid))
+        {
+            goto cleanup;
+        }
+    }
+
+	PLOG_DEBUG << L"Process PID: " << target_process_pid;
+
+    PLOG_DEBUG << L"Checking if core dll is already loaded in target process...";
+    if(IsDllLoadedInProcess(target_process_pid, core_dll_path.c_str()))
+    {
+        PLOG_ERROR << L"Core is already loaded! Aborting.";
+        goto cleanup;
+    }
+    PLOG_DEBUG << L"Core DLL is not loaded already. Good to keep going!";
+
+	PLOG_DEBUG << L"Opening process...";
+	target_process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, target_process_pid);
 	if (!target_process)
 	{
-		PLOG_FATAL << L"[!] Failed to access target process. Error: " << GetLastError();
+		PLOG_ERROR << L"Failed to access target process. Error: " << GetLastError();
 		goto cleanup;
 	}
+	PLOG_DEBUG << L"Process successfully opened. HANDLE: 0x" << target_process;
 
-	PLOG_INFO << L"[+] Injecting module(s)... ";
-	for(std::wstring module_name : user_options.modules) PLOG_INFO << L"---[+] " << module_name;
+	PLOG_INFO << L"Injecting UiForge...";
+	LPVOID payload_address = InjectDLL(target_process, const_cast<wchar_t*>(core_dll_path.c_str()));
+    if (!payload_address)
+    {
+        PLOG_ERROR << L"Failed to inject dll. Error: "
+           << _wcserror(GetLastError())
+           << L" (0x"
+           << std::setw(8) << std::setfill(L'0') << std::hex
+           << GetLastError()
+           << L")";
+        goto cleanup;
+    }
 
-	num_bytes_to_write = GetTotalSizeBytesOfWStrings(user_options.modules);
-	PLOG_INFO << L"[+] Total size of module(s): " << num_bytes_to_write << L" bytes";
-	inject_address = VirtualAllocEx(target_process, NULL, num_bytes_to_write, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-	if (!inject_address)
-	{
-		PLOG_FATAL << L"[!] Failed to allocate memory in target process. Error: " << GetLastError();
-		goto cleanup;
-	}
+	PLOG_DEBUG << L"Payload Address: 0x"
+           << std::setw(16)
+           << std::setfill(L'0')
+           << std::hex
+           << reinterpret_cast<std::uintptr_t>(payload_address);
 
-	// Setup payload string
-	list_of_modules = (const wchar_t*)malloc(num_bytes_to_write);
-	if(!list_of_modules)
+	PLOG_DEBUG << L"Running DLL Payload...";
+	HANDLE injected_thread = RunPayloadDLL(target_process, payload_address);
+	if (!injected_thread)
 	{
-		PLOG_FATAL << L"[!] Failed to allocate memory for buffer used to prepare string payload.";
-		goto cleanup;
-	}
-	
-	memcpy((void*)list_of_modules, (void*)ConcatenateWStrings(user_options.modules).c_str(), num_bytes_to_write);
+		DWORD err = GetLastError();
 
-	// Write payload to target proces
-	PLOG_INFO << L"[+] Writing payload to target process...";
-	did_write_memory = WriteProcessMemory(target_process, inject_address, list_of_modules, num_bytes_to_write, &num_bytes_written);
-	if (!did_write_memory || num_bytes_written != num_bytes_to_write)
-	{
-		PLOG_FATAL << L"[!] Failed to write payload to memory in target process. Error: " << GetLastError();
-		goto cleanup;
-	}
+		PLOG_ERROR << L"Failed to run payload. Error: "
+				<< _wcserror(err)
+				<< L" (0x"
+				<< std::setw(8) << std::setfill(L'0') << std::hex
+				<< err
+				<< L")";
 
-	PLOG_DEBUG << L"---[+] Bytes written: " << num_bytes_written; 
-	for (unsigned idx=0; idx < num_bytes_to_write; idx++)
-	{
-		PLOG_DEBUG.printf("%02x ", ((char*)list_of_modules)[idx]);
-	}
-
-	k32dll = GetModuleHandleW(L"kernel32.dll");
-	if (!k32dll)
-	{
-		PLOG_FATAL << L"[!] Failed to get module handle for kernel32. Error: " << GetLastError();
-		goto cleanup;
-	}
-	
-	load_lib_addr = GetProcAddress(k32dll, "LoadLibraryW");
-	if (!load_lib_addr)
-	{
-		PLOG_FATAL << L"[!] Failed to get address of LoadLibrary. Error: " << GetLastError();
-		goto cleanup;
-	}
-
-	// Run each module
-	PLOG_INFO << L"[+] Starting injected DLL(s)...";
-	for(std::wstring mod : user_options.modules)
-	{
-		PLOG_DEBUG.printf(L"[+] Starting %s (0x%llX)...", mod.c_str(), reinterpret_cast<std::uintptr_t>(inject_address));
-		injected_thread = CreateRemoteThreadEx(target_process, NULL, DEFAULT_STACK_SIZE, (LPTHREAD_START_ROUTINE)load_lib_addr, inject_address, 0, NULL, NULL);
-		if (!injected_thread)
+		if (!VirtualFreeEx(target_process, payload_address, 0, MEM_RELEASE))
 		{
-			PLOG_FATAL << L"[!] Failed to create thread in target process. Error: " << GetLastError();
-			goto cleanup;
+			DWORD freeErr = GetLastError();
+
+			PLOG_ERROR << L"Oh my... a double error! VirtualFreeEx was unable to free "
+						L"the reserved memory in target process. Error: "
+					<< _wcserror(freeErr)
+					<< L" (0x"
+					<< std::setw(8) << std::setfill(L'0') << std::hex
+					<< freeErr
+					<< L")";
 		}
 
-		inject_address = (void*)(reinterpret_cast<std::uintptr_t>(inject_address) + GetSizeOfWStringBytes(mod));
+		goto cleanup;
 	}
+	PLOG_DEBUG << L"Injected Thread Handle: " << injected_thread; 
 	
-	PLOG_DEBUG << L"[+] Success!";
+	PLOG_INFO << L"Success!";
 
 	return_code = EXIT_SUCCESS;
 
@@ -197,14 +314,11 @@ cleanup:
 	if (return_code == EXIT_FAILURE)
 	{
 		std::wcout << L"[!] Be sure that the target application is running and that you have the user privileges to access the process at an administrator level\n";
-		std::wprintf(USAGE, argv[0], argv[0], argv[0]);
+		print_usage(argv[0]);
 		std::wcout << L"Press ENTER to exit...";
 		std::getwchar();
 	}
-	if (inject_address && target_process && (!did_write_memory || num_bytes_written != num_bytes_to_write || injected_thread == NULL)) VirtualFreeEx(target_process, inject_address, 0, MEM_RELEASE);
-	if(list_of_modules) free((void*)list_of_modules);
-	if (injected_thread) CloseHandle(injected_thread);
-	if (target_process) CloseHandle(target_process);
-
+    if (target_process){CloseHandle(target_process);}
+    if (injected_thread){CloseHandle(injected_thread);}
 	return return_code;
 }

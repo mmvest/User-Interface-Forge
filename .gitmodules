@@ -1,0 +1,3 @@
+[submodule "libs/InjectTools"]
+	path = libs/InjectTools
+	url = https://github.com/mmvest/InjectTools.git

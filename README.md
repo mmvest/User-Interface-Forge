@@ -38,7 +38,7 @@ Currently this project only supports 64-bit DirectX11, but the goal is to suppor
 
 1. **Clone the Repository**:
     ```bash
-    git clone https://github.com/mmvest/User-Interface-Forge.git
+    git clone --recurse-submodules https://github.com/mmvest/User-Interface-Forge.git
     cd user-interface-forge
     ```
 

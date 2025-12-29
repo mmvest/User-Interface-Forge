@@ -79,7 +79,7 @@ if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
 if "%BUILD_INJECTOR%"=="true" (
     echo Building Injector
     if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
-    cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp %SRC_DIR%\injector\util.cpp
+    cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /EHsc        : Enables standard C++ exception handling.
     @REM /Fe          : Specifies the output file name for the executable.
