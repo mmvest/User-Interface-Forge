@@ -58,11 +58,9 @@ You are now all set to use UiForge!
 ## How to Use UiForge
 Once UiForge is built, you can run it from the commandline like so
 ```bash
-UiForge.exe <target_application_name>
+UiForge.exe -n <target_application_name>
 ```
-As long as the application is actively rendering frames using a supported graphics api, you should see a demo window pop up. Here is an example of injecting UiForge into a running pcsx2 emulator:
-
-![](media/demo_run_uiforge.gif)
+As long as the application is actively rendering frames using a supported graphics api, you should see an icon pop up in the top left corner of the window.
 
 To stop UiForge, just press the END key. Upon hitting the END key, a dialog box should pop up telling you that UiForge has cleaned up.
 

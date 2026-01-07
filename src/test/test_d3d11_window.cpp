@@ -1,4 +1,7 @@
 // Minimal D3D11 window with ImGui controls for mode switching.
+// Note/Disclaimer?? This is completely AI generated using GPT-5.2-Codex.
+// I Looked over it briefly to make sure it seemed like everything was
+// correct at a high level. Contributors, feel free to poke at it and make improvements.
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
