@@ -50,11 +50,13 @@ set BUILD_ALL=false
 set BUILD_PCH=false
 set BUILD_INJECTOR=false
 set BUILD_CORE=false
+set BUILD_TESTD3D11=false
 
 if /I "%~1"=="" set BUILD_ALL=true
 if /I "%~1"=="pch" set BUILD_PCH=true
 if /I "%~1"=="injector" set BUILD_INJECTOR=true
 if /I "%~1"=="core" set BUILD_CORE=true
+if /I "%~1"=="testd3d11" set BUILD_TESTD3D11=true
 
 @REM Build PCH
 if "%BUILD_ALL%"=="true" set BUILD_PCH=true
@@ -103,6 +105,19 @@ if "%BUILD_CORE%"=="true" (
     @REM /Yu          : Uses the precompiled header pch.h.
     @REM /Fp          : Specifies the PCH file to use.
     @REM /Fe          : Specifies the output file name for the DLL.
+    @REM %CSTD%       : Specifies the C++ standard to use.
+    @REM /link        : Specifies linker options.
+    if errorlevel 1 goto error
+)
+
+@REM Build D3D11 Test Window
+if "%BUILD_TESTD3D11%"=="true" (
+    echo Building D3D11 Test Window
+    if not exist %BIN_DIR% mkdir %BIN_DIR%
+    cl /nologo /EHsc /Fe:%BIN_DIR%\test_d3d11_window.exe %CSTD% %SRC_DIR%\test\test_d3d11_window.cpp /link d3d11.lib dxgi.lib user32.lib %LIBS_DIR%\imgui_directx11_1.91.2.lib
+    @REM /nologo      : Suppresses the compiler version info in output.
+    @REM /EHsc        : Enables standard C++ exception handling.
+    @REM /Fe          : Specifies the output file name for the executable.
     @REM %CSTD%       : Specifies the C++ standard to use.
     @REM /link        : Specifies linker options.
     if errorlevel 1 goto error

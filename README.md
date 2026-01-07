@@ -107,6 +107,18 @@ UiForge simplifies the management and creation of custom injected UI elements by
 
 - **Customizable Configurations**: Various configurations are exposed through the `config` file, enabling customization of script and module directories, the location of the core DLL, and more.
 
+## Testing/Demo
+If you would like to test UiForge out, you can build the test application by running:
+```
+.\build_uiforge.bat testd3d11
+```
+This will produce `test_d3d11_window.exe` in the `bin` directory. At that point, run `test_d3d11_window.exe`
+then start uiforge targeting the test window:
+```
+.\UiForge.exe -n test_d3d11_window.exe
+```
+And there you go! Now you can mess around with UiForge in the test app.
+
 ## Examples: UiForge in Action
 
 Examples are incoming -- currently working on a project that will be using this!
