@@ -98,6 +98,7 @@ BOOL IsDllLoadedInProcess(DWORD pid, const wchar_t* target_dll_path)
            << std::setw(8) << std::setfill(L'0') << std::hex
            << GetLastError()
            << L")";
+        found = TRUE;
         goto dll_check_cleanup;
     }
 
@@ -109,6 +110,7 @@ BOOL IsDllLoadedInProcess(DWORD pid, const wchar_t* target_dll_path)
            << std::setw(8) << std::setfill(L'0') << std::hex
            << GetLastError()
            << L")";
+        found = TRUE;
         goto dll_check_cleanup;
     }
 
@@ -206,20 +208,29 @@ int wmain(int argc, wchar_t** argv)
 {
 	BOOL return_code = EXIT_FAILURE;
 	HANDLE target_process = NULL;
+    const SIZE_T PAGE_SIZE_BYTES = 4096;
+    const DWORD WAIT_TIME_MILLISECONDS = 5000;
 
 	// Read in data from config file, specifically the name of the dll to inject
 	// and the logging level.
 	scl::config_file uif_config(CONFIG_FILE, scl::config_file::READ);
     
-	std::wstring core_dll_path = std::filesystem::absolute(uif_config.get<std::string>("CORE_DLL")).wstring(); // TODO: THIS IS THE PROBLEM
+    int max_log_size = uif_config.get<int>("MAX_LOG_SIZE_BYTES");
+    int max_log_files =  uif_config.get<int>("MAX_LOG_FILES");
+    std::string log_file_name =  uif_config.get<std::string>("INJECTOR_LOG_FILE_NAME");
+	std::wstring core_dll_path = std::filesystem::absolute(uif_config.get<std::string>("CORE_DLL")).wstring();
 	plog::Severity logging_level = static_cast<plog::Severity>(uif_config.get<int>("LOGGING_LEVEL"));
 
 	// Initialize Logging
+    static plog::RollingFileAppender<plog::TxtFormatter> file_appender(log_file_name.c_str(), max_log_size, max_log_files);
 	static plog::ConsoleAppender<plog::TxtFormatter> console_appender;
-	plog::init(logging_level, &console_appender);
+	plog::init(logging_level, &console_appender).addAppender(&file_appender);
 
     PLOG_DEBUG << L"LOGGING LEVEL: " << logging_level;
     PLOG_DEBUG << L"CORE DLL PATH: " << core_dll_path;
+    PLOG_DEBUG << L"LOG FILE NAME: " << log_file_name;
+    PLOG_DEBUG << L"MAX LOG FILES: " << max_log_files;
+    PLOG_DEBUG << L"MAX LOG SIZE: " << max_log_size;
 
 	PLOG_DEBUG << L"Parsing arguments...";
     if (!parse_args(argc, argv))
@@ -241,7 +252,7 @@ int wmain(int argc, wchar_t** argv)
 	PLOG_DEBUG << L"Process PID: " << target_process_pid;
 
     PLOG_DEBUG << L"Checking if core dll is already loaded in target process...";
-    if(!IsDllLoadedInProcess(target_process_pid, core_dll_path.c_str()))
+    if(IsDllLoadedInProcess(target_process_pid, core_dll_path.c_str()))
     {
         PLOG_ERROR << L"Core is already loaded or an error occurred! Aborting.";
         goto cleanup;
@@ -276,6 +287,40 @@ int wmain(int argc, wchar_t** argv)
            << std::hex
            << reinterpret_cast<std::uintptr_t>(payload_address);
 
+    // Lets do some sanity checking to make sure we did, in fact, inject the correct string
+    PLOG_DEBUG << L"Checking string that was written to target process...";
+    BYTE payload_snapshot[PAGE_SIZE_BYTES] = { 0 };
+    BOOL read_proc_mem_result = ReadProcessMemory(target_process, payload_address, payload_snapshot, PAGE_SIZE_BYTES, NULL);
+    if (!read_proc_mem_result)
+    {
+        DWORD read_err = GetLastError();
+        PLOG_ERROR << L"ReadProcessMemory failed. Error: "
+            << _wcserror(read_err)
+            << L" (0x"
+            << std::setw(8)
+            << std::setfill(L'0')
+            << std::hex
+            << read_err
+            << L")";
+        goto cleanup;
+    }
+    // Is there a cleaner way to do this? Need to set the last two bytes to null delimiter to avoid
+    // potentially reading over buffer later.
+    payload_snapshot[PAGE_SIZE_BYTES - 2] = 0;
+    payload_snapshot[PAGE_SIZE_BYTES - 1] = 0;
+    
+    const wchar_t* payload_snapshot_wstr = reinterpret_cast<const wchar_t*>(payload_snapshot);
+    PLOG_DEBUG << L"ReadProcessMemory String: " << payload_snapshot_wstr;
+    if (core_dll_path != payload_snapshot_wstr)
+    {
+        PLOG_ERROR << L"Injected payload mismatch. Expected: "
+            << core_dll_path
+            << L" Actual: "
+            << payload_snapshot_wstr;
+        goto cleanup;
+    }
+    PLOG_DEBUG << L"Payload string was written correctly!";
+    
 	PLOG_DEBUG << L"Running DLL Payload...";
 	HANDLE injected_thread = RunPayloadDLL(target_process, payload_address);
 	if (!injected_thread)
@@ -297,16 +342,73 @@ int wmain(int argc, wchar_t** argv)
 						L"the reserved memory in target process. Error: "
 					<< _wcserror(freeErr)
 					<< L" (0x"
-					<< std::setw(8) << std::setfill(L'0') << std::hex
+					<< std::setw(8)
+                    << std::setfill(L'0')
+                    << std::hex
 					<< freeErr
 					<< L")";
 		}
 
 		goto cleanup;
 	}
-	PLOG_DEBUG << L"Injected Thread Handle: " << injected_thread; 
-	
-	PLOG_INFO << L"Success!";
+	PLOG_DEBUG << L"Injected Thread Handle: 0x" << injected_thread; 
+
+    // Lets check that the thread exited with a correct status code
+    PLOG_DEBUG << L"Waiting for injected thread to load UiForge in target process (Timeout: " << WAIT_TIME_MILLISECONDS << "ms)...";
+    DWORD wait_result = WaitForSingleObject(injected_thread, WAIT_TIME_MILLISECONDS);
+    PLOG_DEBUG << L"Result of waiting for injected thread: 0x"
+            << std::setw(8)
+            << std::setfill(L'0')
+            << std::hex
+            << wait_result;
+    switch(wait_result)
+    {
+        case WAIT_OBJECT_0:
+            PLOG_DEBUG << L"The injected thread has exited!";
+            break;
+        case WAIT_TIMEOUT:
+            PLOG_ERROR << L"WaitForSingleObject timed out. "
+                << L"Note this does not necessarily mean UiForge failed to start";
+            break;
+        case WAIT_FAILED:
+            PLOG_ERROR << L"WaitForSingleObject failed with Error: "
+                << _wcserror(GetLastError())
+                << L" (0x"
+                << std::setw(8)
+                << std::setfill(L'0')
+                << std::hex
+                << GetLastError()
+                << L"). Note this does not necessarily mean UiForge failed to start.";
+            break;
+    }
+
+    DWORD thread_exit_code = 0;
+    if (!GetExitCodeThread(injected_thread, &thread_exit_code))
+    {
+        const DWORD exit_err = GetLastError();
+        PLOG_ERROR << L"GetExitCodeThread failed with Error: "
+            << _wcserror(exit_err)
+            << L" (0x"
+            << std::setw(8)
+            << std::setfill(L'0')
+            << std::hex
+            << exit_err
+            << L")";
+    }
+    else
+    {
+        PLOG_DEBUG << L"Injected thread exit code: "
+            << std::dec
+            << thread_exit_code
+            << L" (0x"
+            << std::setw(8)
+            << std::setfill(L'0')
+            << std::hex
+            << thread_exit_code
+            << L")";
+    }
+
+    PLOG_INFO << L"Success!";
 
 	return_code = EXIT_SUCCESS;
 
