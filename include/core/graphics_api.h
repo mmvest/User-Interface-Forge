@@ -1,6 +1,9 @@
 #pragma once
 
-#include "pch.h"
+#include <Windows.h>
+#include <d3d11.h>
+#include <dxgi.h>
+#include <string>
 
 enum class GraphicsApiType
 {

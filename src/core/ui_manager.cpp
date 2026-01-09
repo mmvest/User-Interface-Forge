@@ -1,4 +1,11 @@
-#include "pch.h"
+#include <cstddef>
+#include <filesystem>
+#include <stdexcept>
+#include <string>
+
+#include "imgui\imgui_impl_win32.h"
+#include "plog\Log.h"
+
 #include "core\ui_manager.h"
 #include "core\graphics_api.h"
 

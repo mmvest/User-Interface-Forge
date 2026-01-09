@@ -1,5 +1,7 @@
 #pragma once
-#include "pch.h"
+#include <Windows.h>
+
+#include "imgui\imgui.h"
 #include "core\forgescript_manager.h"
 
 /**

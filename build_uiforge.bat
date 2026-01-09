@@ -47,34 +47,14 @@ call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build
 
 @REM Determine what to build
 set BUILD_ALL=false
-set BUILD_PCH=false
 set BUILD_INJECTOR=false
 set BUILD_CORE=false
 set BUILD_TESTD3D11=false
 
 if /I "%~1"=="" set BUILD_ALL=true
-if /I "%~1"=="pch" set BUILD_PCH=true
 if /I "%~1"=="injector" set BUILD_INJECTOR=true
 if /I "%~1"=="core" set BUILD_CORE=true
 if /I "%~1"=="testd3d11" set BUILD_TESTD3D11=true
-
-@REM Build PCH
-if "%BUILD_ALL%"=="true" set BUILD_PCH=true
-if "%BUILD_PCH%"=="true" (
-    echo Building
-    if not exist %BIN_DIR% mkdir %BIN_DIR%
-    cl /nologo /Bt+ /EHsc /Zi /Yc"pch.h" %CSTD% /D %SOL_IMGUI_DEFINES% /Fp"%BIN_DIR%\pch.pch" /Fo"%BIN_DIR%\pch.obj" /c %SRC_DIR%\pch.cpp
-    @REM /nologo        : Suppresses the compiler version info in output.
-    @REM /Bt            : Outputs timing information for each stage of the compilation process.
-    @REM /EHsc          : Enables standard C++ exception handling.
-    @REM /Yc            : Creates a precompiled header from pch.h.
-    @REM %CSTD%         : Specifies the C++ standard to use (e.g., /std:c++17).
-    @REM /D             : Defines preprocessing macros.
-    @REM /Fp            : Specifies the precompiled header
-    @REM /Fo            : Specifies the compiled object
-    @REM /c             : Compiles without linking.
-    if errorlevel 1 goto error
-)
 
 @REM Build Injector
 if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
@@ -94,7 +74,7 @@ if "%BUILD_ALL%"=="true" set BUILD_CORE=true
 if "%BUILD_CORE%"=="true" (
     echo Building Core
     if not exist %OBJ_DIR_CORE% mkdir %OBJ_DIR_CORE%
-    cl /nologo /bigobj /EHsc /Bt+ /MP /MT /Zi /LD /D %SOL_IMGUI_DEFINES% /Yu"pch.h" /Fp"%BIN_DIR%\pch.pch" /Fe:%BIN_DIR%\uiforge_core.dll %CSTD% %SRC_DIR%\core\*.cpp %BIN_DIR%\pch.obj /link %LINK_GRAPHICS% %LINK_LUA%
+    cl /nologo /bigobj /EHsc /Bt+ /MP /MT /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uiforge_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA%
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /bigobj      : Enables support for larger object files.
     @REM /EHsc        : Enables standard C++ exception handling.
@@ -102,8 +82,6 @@ if "%BUILD_CORE%"=="true" (
     @REM /Zi          : Generates complete debugging information.
     @REM /LD          : Builds a dynamic-link library (DLL).
     @REM /D           : Defines macro(s) for preprocessing (e.g., IMGUI_NO_DOCKING).
-    @REM /Yu          : Uses the precompiled header pch.h.
-    @REM /Fp          : Specifies the PCH file to use.
     @REM /Fe          : Specifies the output file name for the DLL.
     @REM %CSTD%       : Specifies the C++ standard to use.
     @REM /link        : Specifies linker options.

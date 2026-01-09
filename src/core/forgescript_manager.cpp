@@ -1,4 +1,15 @@
-#include "pch.h"
+#include <algorithm>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iterator>
+#include <stdexcept>
+#include <string>
+
+#include "plog\Log.h"
+
+#include "core\util.h"
 #include "core\forgescript_manager.h"
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗

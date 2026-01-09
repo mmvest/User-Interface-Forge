@@ -46,7 +46,24 @@
  */
 
 
-#include "pch.h"
+#include <Windows.h>
+#include <atomic>
+#include <codecvt>
+#include <cstdlib>
+#include <filesystem>
+#include <locale>
+#include <stdexcept>
+#include <string>
+
+#include "imgui\sol_ImGui.h"
+#include "kiero\kiero.h"
+#include "luajit\lua.hpp"
+#include "plog\Initializers\RollingFileInitializer.h"
+#include "plog\Log.h"
+#include "scl\SCL.hpp"
+#include "sol\sol.hpp"
+
+#include "core\util.h"
 #include "core\graphics_api.h"
 #include "core\forgescript_manager.h"
 #include "core\ui_manager.h"

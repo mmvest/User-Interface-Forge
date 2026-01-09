@@ -1,4 +1,9 @@
-#include "pch.h"
+#include <Windows.h>
+#include <atomic>
+#include <cstdint>
+#include <thread>
+
+#include "core\util.h"
 
 extern std::atomic<bool> needs_cleanup;         // From uif_core.cpp
 

@@ -1,6 +1,12 @@
 #pragma once
 
-#include "pch.h"
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "luajit\lua.hpp"
+#include "sol\sol.hpp"
 
 struct ForgeScriptDebug
 {
