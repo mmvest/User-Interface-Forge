@@ -241,9 +241,9 @@ int wmain(int argc, wchar_t** argv)
 	PLOG_DEBUG << L"Process PID: " << target_process_pid;
 
     PLOG_DEBUG << L"Checking if core dll is already loaded in target process...";
-    if(IsDllLoadedInProcess(target_process_pid, core_dll_path.c_str()))
+    if(!IsDllLoadedInProcess(target_process_pid, core_dll_path.c_str()))
     {
-        PLOG_ERROR << L"Core is already loaded! Aborting.";
+        PLOG_ERROR << L"Core is already loaded or an error occurred! Aborting.";
         goto cleanup;
     }
     PLOG_DEBUG << L"Core DLL is not loaded already. Good to keep going!";
