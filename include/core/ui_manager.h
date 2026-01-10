@@ -49,6 +49,15 @@ class UiManager
          * @param script_manager Reference to the script manager.
          */
         void RenderUiElements(ForgeScriptManager& script_manager, void* settings_icon);
+
+        /**
+         * @brief Updates the target window handle if the swap chain output changes.
+         *
+         * @param new_target_window Handle to the new target window.
+         * @return True if the window was updated.
+         */
+        bool UpdateTargetWindow(HWND new_target_window);
+
         
         /**
          * @brief Cleans up resources used by ImGui and restores the original window procedure.

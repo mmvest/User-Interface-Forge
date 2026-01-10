@@ -297,6 +297,11 @@ void OnGraphicsApiInvoke(void* params)
         graphics_api->initialized = true;
     }
 
+    // Handle the case where the screen changes from window to fullscreen and vice versa
+    // and any other render target changes.
+    graphics_api->UpdateRenderTarget(params);
+    ui_manager->UpdateTargetWindow(graphics_api->target_window);
+
     graphics_api->NewFrame();
     ui_manager->RenderUiElements(*script_manager, settings_icon);
     graphics_api->Render();

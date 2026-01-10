@@ -50,6 +50,16 @@ class IGraphicsApi
         static void (*Render)();
 
         /**
+         * @brief Ensures the swap chain and render target are up to date.
+         * 
+         * This is especially important for making sure UiForge functions
+         * properly when windows swap between fullscreen and windowed mode.
+         *
+         * @param params Platform-specific parameters for the graphics API function.
+         */
+        static void (*UpdateRenderTarget)(void* params);
+
+        /**
          * @brief This function is called whenever the graphics API's primary function (e.g., `Present` for D3D11) is invoked.
          *
          * @param params Platform-specific parameters for the graphics API function.
@@ -118,6 +128,13 @@ class D3D11GraphicsApi : public IGraphicsApi
         static void NewFrame();
 
         /**
+         * @brief Updates the swap chain and render target view if the back buffer changes.
+         *
+         * @param swap_chain The swap chain for the DirectX 11 graphics pipeline.
+         */
+        static void UpdateRenderTarget(void* swap_chain);
+
+        /**
          * @brief Executes rendering for the current frame using DirectX 11 and ImGui.
          */
         static void Render();
@@ -173,6 +190,11 @@ class D3D11GraphicsApi : public IGraphicsApi
         static ID3D11Device*            d3d11_device;
         static ID3D11DeviceContext*     d3d11_context;
         static ID3D11RenderTargetView*  main_render_target_view;
+        // We use these two variables to help track changes in the render target.
+        // Changes to these in many instances implies changes to the window and render target.
+        static IDXGISwapChain*          current_swap_chain;
+        static UINT                     cached_backbuffer_width;
+        static UINT                     cached_backbuffer_height;
 };
 
 

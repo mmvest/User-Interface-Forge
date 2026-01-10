@@ -184,6 +184,36 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
     ImGui::Render();
 }
 
+bool UiManager::UpdateTargetWindow(HWND new_target_window)
+{
+    if (!new_target_window || new_target_window == target_window)
+    {
+        return false;
+    }
+
+    if (original_wndproc && target_window)
+    {
+        SetWindowLongPtrW(target_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_wndproc));
+        original_wndproc = nullptr;
+    }
+
+    ImGui_ImplWin32_Shutdown();
+
+    target_window = new_target_window;
+    original_wndproc = (WNDPROC)SetWindowLongPtrW(target_window, GWLP_WNDPROC, (LONG_PTR)WndProc);
+    if (!original_wndproc)
+    {
+        PLOG_WARNING << "Failed to set new address for the window procedure after window change. Error: " << GetLastError();
+    }
+
+    if (!ImGui_ImplWin32_Init(target_window))
+    {
+        PLOG_WARNING << "Unable to initialize ImGui Win32 Implementation after window change.";
+    }
+
+    return true;
+}
+
 void UiManager::CleanupUiManager()
 {
     if(mod_context)
