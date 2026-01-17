@@ -13,7 +13,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 WNDPROC UiManager::original_wndproc = nullptr;
 
-UiManager::UiManager(HWND target_window) : target_window(target_window), show_settings(false)
+UiManager::UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y) : target_window(target_window), show_settings(false), settings_icon_size(settings_icon_size_x, settings_icon_size_y)
 {
     InitializeImGui();
 };
@@ -48,10 +48,9 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
     unsigned window_flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar;
     if (ImGui::Begin("Settings Icon", nullptr, window_flags))
     {
-        ImVec2 icon_size(32, 32);
         ImVec2 cursor_pos = ImGui::GetCursorPos();
         ImVec4 icon_tint(1,1,1,0.2);    // Make the default tint transparent
-        if(ImGui::InvisibleButton("##UiForge Settings Icon", icon_size))
+        if(ImGui::InvisibleButton("##UiForge Settings Icon", settings_icon_size))
         {
             show_settings = !show_settings;
         }
@@ -63,7 +62,7 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
         }
 
         ImGui::SetCursorPos(cursor_pos);
-        ImGui::Image(settings_icon, icon_size, ImVec2(0,0), ImVec2(1,1), icon_tint);
+        ImGui::Image(settings_icon, settings_icon_size, ImVec2(0,0), ImVec2(1,1), icon_tint);
     }
     ImGui::End();
 }

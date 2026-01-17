@@ -101,6 +101,9 @@ ForgeScriptManager* script_manager;
 
 // Settings
 void* settings_icon = nullptr;
+std::string settings_icon_file;
+float settings_icon_size_x = 32.0f;
+float settings_icon_size_y = 32.0f;
 
 // Logging
 int max_log_size = 0;
@@ -264,7 +267,7 @@ void OnGraphicsApiInvoke(void* params)
             graphics_api->InitializeGraphicsApi(params);
 
             PLOG_DEBUG << "Creating UiManager";
-            ui_manager = new UiManager(graphics_api->target_window);
+            ui_manager = new UiManager(graphics_api->target_window, settings_icon_size_x, settings_icon_size_y);
             if(!ui_manager)
             {
                 throw std::runtime_error("Failed to initialize Graphics API ImGui Implementation.");
@@ -277,11 +280,10 @@ void OnGraphicsApiInvoke(void* params)
             }
 
             PLOG_DEBUG << "Loading Settings Icon Texture";
-            // Convert the resources path from utf-8 to utf-16
+            
+            // Must use utf-16 string for the icon path passed to CreateTextureFromFile function
             std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-            std::wstring icon_path = converter.from_bytes(uiforge_resources_dir);
-
-            icon_path += L"\\gear-icon.png"; // TODO: Make this into a config value?
+            std::wstring icon_path = converter.from_bytes(uiforge_resources_dir + "//" + settings_icon_file);
             settings_icon = graphics_api->CreateTextureFromFile(icon_path);
 
             PLOG_DEBUG << "Done with graphics initialization";
@@ -339,6 +341,11 @@ void LoadConfiguration()
 
     uiforge_resources_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_RESOURCES_DIR"));
 
+    settings_icon_file = GET_CONFIG_VAL(uiforge_root_dir, std::string, "SETTINGS_ICON_FILE");
+
+    settings_icon_size_x = static_cast<float>(GET_CONFIG_VAL(uiforge_root_dir, int, "SETTINGS_ICON_SIZE_X"));
+    settings_icon_size_y = static_cast<float>(GET_CONFIG_VAL(uiforge_root_dir, int, "SETTINGS_ICON_SIZE_Y"));
+
     max_log_size = GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_SIZE_BYTES");
 
     max_log_files = GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_FILES");
@@ -357,6 +364,9 @@ void LogConfigValues()
     PLOG_DEBUG << "UiForge scripts directory: " << uiforge_scripts_dir;
     PLOG_DEBUG << "UiForge modules directory: " << uiforge_modules_dir;
     PLOG_DEBUG << "UiForge resources directory: " << uiforge_resources_dir;
+    PLOG_DEBUG << "Settings icon file: " << settings_icon_file;
+    PLOG_DEBUG << "Settings icon size x: " << settings_icon_size_x;
+    PLOG_DEBUG << "Settings icon size y: " << settings_icon_size_y;
     PLOG_DEBUG << "Max log size: " << max_log_size;
     PLOG_DEBUG << "Max log files: " << max_log_files;
     PLOG_DEBUG << "Log file name: " << log_file_name;

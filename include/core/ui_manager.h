@@ -15,7 +15,7 @@ class UiManager
          *
          * @param target_window Handle to the target window.
          */
-        UiManager(HWND target_window);
+        UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y);
 
         /**
          * @brief Destroys the UI manager and cleans up resources.
@@ -88,5 +88,6 @@ class UiManager
         static WNDPROC original_wndproc;    // Static so I can use it in WndProc
         HWND target_window;
         bool show_settings;
+        ImVec2 settings_icon_size;
 
 };
