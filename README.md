@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="scripts/resources/uiforge_icon_gold.png" alt="UiForge icon" width="358" height="353"/>
+  <img src="media/uiforge_icon_gold.png" alt="UiForge icon" width="358" height="353"/>
 </p>
 <h1 align="center">User Interface Forge</h1>
 <p align="center">

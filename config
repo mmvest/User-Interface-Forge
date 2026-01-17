@@ -11,7 +11,7 @@ FORGE_MODULES_DIR=modules
 FORGE_RESOURCES_DIR=resources
 
 # This is relative to the resources directory
-SETTINGS_ICON_FILE=uiforge_icon_gold.png
+SETTINGS_ICON_FILE=uiforge_icon_gold_small.png
 SETTINGS_ICON_SIZE_X=48
 SETTINGS_ICON_SIZE_Y=48
 

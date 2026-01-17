@@ -45,20 +45,48 @@ void UiManager::InitializeImGui()
 
 void UiManager::RenderSettingsIcon(void* settings_icon)
 {
+    static bool is_dragging_icon = false;
+
     unsigned window_flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar;
     if (ImGui::Begin("Settings Icon", nullptr, window_flags))
     {
         ImVec2 cursor_pos = ImGui::GetCursorPos();
         ImVec4 icon_tint(1,1,1,0.2);    // Make the default tint transparent
+        ImGuiIO& io = ImGui::GetIO();
+
+        // Render the button -- this must happen before the click-n-drag logic
+        // or else that logic won't work!
         if(ImGui::InvisibleButton("##UiForge Settings Icon", settings_icon_size))
         {
-            show_settings = !show_settings;
+            if (!is_dragging_icon)
+            {
+                show_settings = !show_settings;
+            }
         }
 
         if (ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("UiForge Settings");
             icon_tint.w = 1;            // If the icon is hovered, we want to make the alpha 1 so it will not be transparent
+        }
+
+        // Click-n-drag logic!
+        if (ImGui::IsItemActive()
+        && ImGui::IsMouseDown(ImGuiMouseButton_Left)
+        && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f))
+        {
+            is_dragging_icon = true;
+            
+            // Get our drag offset for the icon
+            ImVec2 icon_window_pos = ImGui::GetWindowPos();
+            icon_window_pos.x += io.MouseDelta.x;
+            icon_window_pos.y += io.MouseDelta.y;
+            ImGui::SetWindowPos(icon_window_pos, ImGuiCond_Always);
+            
+        }
+        else
+        {
+            is_dragging_icon = false;
         }
 
         ImGui::SetCursorPos(cursor_pos);
