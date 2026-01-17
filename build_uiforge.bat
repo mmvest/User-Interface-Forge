@@ -92,12 +92,19 @@ if "%BUILD_CORE%"=="true" (
 if "%BUILD_TESTD3D11%"=="true" (
     echo Building D3D11 Test Window
     if not exist %BIN_DIR% mkdir %BIN_DIR%
-    cl /nologo /EHsc /Fe:%BIN_DIR%\test_d3d11_window.exe %CSTD% %SRC_DIR%\test\test_d3d11_window.cpp /link d3d11.lib dxgi.lib user32.lib %LIBS_DIR%\imgui_directx11_1.91.2.lib
+    cl /nologo /EHsc /Fe:%BIN_DIR%\test_d3d11_window.exe %CSTD% %SRC_DIR%\test\test_d3d11_window.cpp /DUNICODE /D_UNICODE /link user32.lib gdi32.lib d3d11.lib dxgi.lib
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /EHsc        : Enables standard C++ exception handling.
     @REM /Fe          : Specifies the output file name for the executable.
     @REM %CSTD%       : Specifies the C++ standard to use.
+    @REM /DUNICODE    : Enables Unicode Win32 APIs.
+    @REM /D_UNICODE   : Enables Unicode C/C++ runtime mappings.
     @REM /link        : Specifies linker options.
+    @REM user32.lib   : Win32 windowing and message handling.
+    @REM gdi32.lib    : GDI support (required by Win32 window class helpers).
+    @REM d3d11.lib    : Direct3D 11 runtime.
+    @REM dxgi.lib     : DXGI swap chain and fullscreen control.
+
     if errorlevel 1 goto error
 )
 
