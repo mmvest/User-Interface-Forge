@@ -51,8 +51,8 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
     if (ImGui::Begin("Settings Icon", nullptr, window_flags))
     {
         ImVec2 cursor_pos = ImGui::GetCursorPos();
-        ImVec4 icon_tint(1,1,1,0.2);    // Make the default tint transparent
         ImGuiIO& io = ImGui::GetIO();
+        const char* tooltip_text = "UiForge Settings";
 
         // Render the button -- this must happen before the click-n-drag logic
         // or else that logic won't work!
@@ -64,16 +64,19 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
             }
         }
 
-        if (ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip("UiForge Settings");
-            icon_tint.w = 1;            // If the icon is hovered, we want to make the alpha 1 so it will not be transparent
-        }
+        const bool is_hovered = ImGui::IsItemHovered();
 
         // Click-n-drag logic!
-        if (ImGui::IsItemActive()
-        && ImGui::IsMouseDown(ImGuiMouseButton_Left)
-        && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f))
+        const bool is_dragging_now = ImGui::IsItemActive()
+            && ImGui::IsMouseDown(ImGuiMouseButton_Left)
+            && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f);
+
+        if (is_hovered && !is_dragging_now)
+        {
+            ImGui::SetTooltip(tooltip_text);
+        }
+
+        if (is_dragging_now)
         {
             is_dragging_icon = true;
             
@@ -82,15 +85,15 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
             icon_window_pos.x += io.MouseDelta.x;
             icon_window_pos.y += io.MouseDelta.y;
             ImGui::SetWindowPos(icon_window_pos, ImGuiCond_Always);
-            
         }
         else
         {
             is_dragging_icon = false;
         }
 
+        ImVec4 icon_tint(1, 1, 1, (is_hovered || is_dragging_icon) ? 1.0f : 0.2f);
         ImGui::SetCursorPos(cursor_pos);
-        ImGui::Image(settings_icon, settings_icon_size, ImVec2(0,0), ImVec2(1,1), icon_tint);
+        ImGui::Image(settings_icon, settings_icon_size, ImVec2(0, 0), ImVec2(1, 1), icon_tint);
     }
     ImGui::End();
 }

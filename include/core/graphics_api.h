@@ -190,11 +190,6 @@ class D3D11GraphicsApi : public IGraphicsApi
         static ID3D11Device*            d3d11_device;
         static ID3D11DeviceContext*     d3d11_context;
         static ID3D11RenderTargetView*  main_render_target_view;
-        // We use these two variables to help track changes in the render target.
-        // Changes to these in many instances implies changes to the window and render target.
-        static IDXGISwapChain*          current_swap_chain;
-        static UINT                     cached_backbuffer_width;
-        static UINT                     cached_backbuffer_height;
 };
 
 

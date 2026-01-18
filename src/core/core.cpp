@@ -48,10 +48,9 @@
 
 #include <Windows.h>
 #include <atomic>
-#include <codecvt>
 #include <cstdlib>
 #include <filesystem>
-#include <locale>
+#include <unknwn.h>
 #include <stdexcept>
 #include <string>
 
@@ -279,12 +278,12 @@ void OnGraphicsApiInvoke(void* params)
                 throw std::runtime_error("Failed to initialize Graphics API ImGui Implementation.");
             }
 
-            PLOG_DEBUG << "Loading Settings Icon Texture";
-            
-            // Must use utf-16 string for the icon path passed to CreateTextureFromFile function
-            std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-            std::wstring icon_path = converter.from_bytes(uiforge_resources_dir + "//" + settings_icon_file);
-            settings_icon = graphics_api->CreateTextureFromFile(icon_path);
+            if (!settings_icon_file.empty())
+            {
+                PLOG_DEBUG << "Loading Settings Icon Texture";
+                const std::filesystem::path icon_path = std::filesystem::path(uiforge_resources_dir) / settings_icon_file;
+                settings_icon = graphics_api->CreateTextureFromFile(icon_path.wstring());
+            }
 
             PLOG_DEBUG << "Done with graphics initialization";
         }
@@ -454,6 +453,31 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
     // Initialize Graphics API bindings
     InitializeGraphicsApiLuaBindings(uiforge_table, lua);
 
+    uiforge_table["LoadTexture"] = [](const std::string& path) -> void*
+    {
+        if (!IGraphicsApi::CreateTextureFromFile)
+        {
+            return nullptr;
+        }
+
+        std::filesystem::path texture_path(path);
+        if (texture_path.is_relative())
+        {
+            texture_path = std::filesystem::path(uiforge_resources_dir) / texture_path;
+        }
+
+        return IGraphicsApi::CreateTextureFromFile(texture_path.wstring());
+    };
+
+    uiforge_table["ReleaseTexture"] = [](void* texture)
+    {
+        if (!texture)
+        {
+            return;
+        }
+        ((IUnknown*)texture)->Release();
+    };
+
     // ForgeScriptManager Bindings
     uiforge_table["RegisterScriptSettings"] = [](sol::protected_function callback)
     {
@@ -529,6 +553,12 @@ void CleanupUiForge()
 
             PLOG_DEBUG << "Setting state to nullptr...";
             uif_lua_state = nullptr;
+        }
+
+        if (settings_icon)
+        {
+            ((IUnknown*)settings_icon)->Release();
+            settings_icon = nullptr;
         }
 
         if(graphics_api)
