@@ -41,28 +41,13 @@ namespace sol_ImGui
 	inline bool Begin(const std::string& name)															{ return ImGui::Begin(name.c_str()); }
 	inline std::tuple<bool, bool> Begin(const std::string& name, bool open)
 	{
-		if (!open) return std::make_tuple(false, false);
-
 		bool shouldDraw = ImGui::Begin(name.c_str(), &open);
-
-		if(!open)
-		{
-			ImGui::End();
-			return std::make_tuple(false, false);
-		}
 		
 		return std::make_tuple(open, shouldDraw);
 	}
 	inline std::tuple<bool, bool> Begin(const std::string& name, bool open, int flags)
 	{
-		if (!open) return std::make_tuple(false, false);
 		bool shouldDraw = ImGui::Begin(name.c_str(), &open, static_cast<ImGuiWindowFlags_>(flags));
-
-		if(!open)
-		{
-			ImGui::End();
-			return std::make_tuple(false, false);
-		}
 		
 		return std::make_tuple(open, shouldDraw);
 	}
