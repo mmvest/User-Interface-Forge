@@ -12,6 +12,7 @@
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 WNDPROC UiManager::original_wndproc = nullptr;
+bool UiManager::capture_text_input = false;
 
 UiManager::UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y) : target_window(target_window), show_settings(false), settings_icon_size(settings_icon_size_x, settings_icon_size_y)
 {
@@ -209,6 +210,16 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
     // CreateTestWindow();
     RenderSettingsIcon(settings_icon);
     if(show_settings) RenderSettingsWindow(script_manager);
+    // Check if we want to capture keystrokes
+    ImGuiIO io = ImGui::GetIO();
+    if(io.WantCaptureKeyboard && io.WantTextInput)
+    {
+        capture_text_input = true;
+    } 
+    else 
+    {
+        capture_text_input = false;
+    }
     script_manager.RunScripts();
 
     ImGui::Render();
@@ -263,9 +274,157 @@ void UiManager::CleanupUiManager()
     }
 }
 
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                          Manual Input Handling                            ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
+/**
+ * @brief Maps Win32 virtual-key (VK_*) codes to Dear ImGui key identifiers (ImGuiKey_*).
+ *
+ * This helper converts common navigation, editing, modifier, letter, digit, and function keys
+ * into the corresponding ImGuiKey values for manual keyboard input handling. Yes... its a lot.
+ *
+ * @param vk The Win32 virtual-key code (WPARAM from WM_KEYDOWN/WM_KEYUP).
+ * @return The corresponding ImGuiKey value, or ImGuiKey_None if unsupported.
+ */
+static ImGuiKey VkToImGuiKey(WPARAM vk)
+{
+    switch (vk)
+    {
+        case VK_TAB:      return ImGuiKey_Tab;
+        case VK_LEFT:     return ImGuiKey_LeftArrow;
+        case VK_RIGHT:    return ImGuiKey_RightArrow;
+        case VK_UP:       return ImGuiKey_UpArrow;
+        case VK_DOWN:     return ImGuiKey_DownArrow;
+        case VK_PRIOR:    return ImGuiKey_PageUp;
+        case VK_NEXT:     return ImGuiKey_PageDown;
+        case VK_HOME:     return ImGuiKey_Home;
+        case VK_END:      return ImGuiKey_End;
+        case VK_INSERT:   return ImGuiKey_Insert;
+        case VK_DELETE:   return ImGuiKey_Delete;
+        case VK_BACK:     return ImGuiKey_Backspace;
+        case VK_RETURN:   return ImGuiKey_Enter;
+        case VK_ESCAPE:   return ImGuiKey_Escape;
+        case VK_SPACE:    return ImGuiKey_Space;
+
+        case VK_LSHIFT:   return ImGuiKey_LeftShift;
+        case VK_RSHIFT:   return ImGuiKey_RightShift;
+        case VK_LCONTROL: return ImGuiKey_LeftCtrl;
+        case VK_RCONTROL: return ImGuiKey_RightCtrl;
+        case VK_LMENU:    return ImGuiKey_LeftAlt;     // Alt
+        case VK_RMENU:    return ImGuiKey_RightAlt;
+        case VK_LWIN:     return ImGuiKey_LeftSuper;
+        case VK_RWIN:     return ImGuiKey_RightSuper;
+
+        case VK_OEM_1:     return ImGuiKey_Semicolon;   // ;:
+        case VK_OEM_PLUS:  return ImGuiKey_Equal;       // =+
+        case VK_OEM_COMMA: return ImGuiKey_Comma;       // ,<
+        case VK_OEM_MINUS: return ImGuiKey_Minus;       // -_
+        case VK_OEM_PERIOD:return ImGuiKey_Period;      // .>
+        case VK_OEM_2:     return ImGuiKey_Slash;       // /?
+        case VK_OEM_3:     return ImGuiKey_GraveAccent; // `~
+        case VK_OEM_4:     return ImGuiKey_LeftBracket; // [{
+        case VK_OEM_5:     return ImGuiKey_Backslash;   // \|
+        case VK_OEM_6:     return ImGuiKey_RightBracket;// ]}
+        case VK_OEM_7:     return ImGuiKey_Apostrophe;  // '"
+
+        default:
+            break;
+    }
+
+    // Letters
+    if (vk >= 'A' && vk <= 'Z')
+        return (ImGuiKey)(ImGuiKey_A + (int)(vk - 'A'));
+
+    // Digits (top row)
+    if (vk >= '0' && vk <= '9')
+        return (ImGuiKey)(ImGuiKey_0 + (int)(vk - '0'));
+
+    // Function keys
+    if (vk >= VK_F1 && vk <= VK_F12)
+        return (ImGuiKey)(ImGuiKey_F1 + (int)(vk - VK_F1));
+
+    return ImGuiKey_None;
+}
+
+static bool HandleKeyboardInput(UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Keep ImGui's modifier state (Ctrl/Shift/Alt/Windows Key) up to date
+    auto update_mods = [&io]()
+    {
+        io.AddKeyEvent(ImGuiKey_ModCtrl, (GetKeyState(VK_CONTROL) & 0x8000) != 0);
+        io.AddKeyEvent(ImGuiKey_ModShift, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+        io.AddKeyEvent(ImGuiKey_ModAlt, (GetKeyState(VK_MENU) & 0x8000) != 0);
+        io.AddKeyEvent(ImGuiKey_ModSuper, ((GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) != 0);
+    };
+
+    auto fixup_vk = [](WPARAM vk, LPARAM lp) -> WPARAM
+    {
+        // Win32 sometimes reports a generic VK_* (e.g., VK_SHIFT/VK_CONTROL/VK_MENU) and expects
+        // the app to disambiguate left vs right using scan-code / extended-key bits in lParam.
+        // ImGui has distinct left/right key identifiers (e.g., ImGuiKey_LeftCtrl vs RightCtrl),
+        // so we normalize here.
+        if (vk == VK_SHIFT)
+        {
+            // For shift, Win32 provides the scan-code in bits 16..23 of lParam.
+            // MapVirtualKeyW converts that scan-code to the specific VK_LSHIFT/VK_RSHIFT.
+            const UINT scancode = (lp >> 16) & 0xFF;
+            return static_cast<WPARAM>(MapVirtualKeyW(scancode, MAPVK_VSC_TO_VK_EX));
+        }
+        if (vk == VK_CONTROL)
+        {
+            // For control/alt, the "extended" bit (bit 24) distinguishes right-side keys
+            return (lp & 0x01000000) ? VK_RCONTROL : VK_LCONTROL;
+        }
+        if (vk == VK_MENU)
+        {
+            return (lp & 0x01000000) ? VK_RMENU : VK_LMENU;
+        }
+        return vk;
+    };
+
+    switch (msg)
+    {
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:
+        case WM_KEYUP:
+        case WM_SYSKEYUP:
+        {
+            // Key down/up -- we forward these to ImGui as key events, not text characters.
+            // Yes, there is a difference!
+            const bool is_down = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
+            const WPARAM fixed_vk = fixup_vk(wParam, lParam);
+            const ImGuiKey key = VkToImGuiKey(fixed_vk);
+
+            // Not all VK codes are mapped in VkToImGuiKey(). For unsupported keys we will
+            // still update modifiers, but we don't emit an ImGui key event.
+            if (key != ImGuiKey_None)
+                io.AddKeyEvent(key, is_down);
+
+            update_mods();
+            return true;
+        }
+    }
+    return false;
+}
+
 LRESULT WINAPI UiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    // This is our manual input handling logic. I am not entirely sure what the repercussions
+    // are of handling input myself in all applications. I do not think it should cause any
+    // major problems since we are only handling keyboard input manually if an imgui input
+    // text box is selected. Note that currently, I do not think our input handling supports
+    // all languages... I'd have to do more research on IEM (I think that is what it is called)
+    // and figure out how that all works. For now, it seems to mostly work so I am happy with it.
+    if(capture_text_input)
+    {
+        if(HandleKeyboardInput(msg, wParam, lParam)) return 0;
+    }
+    
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
+
     return CallWindowProcW(original_wndproc, hWnd, msg, wParam, lParam);
 }
 

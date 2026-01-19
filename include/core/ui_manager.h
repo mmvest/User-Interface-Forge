@@ -86,6 +86,7 @@ class UiManager
         static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
         
         static WNDPROC original_wndproc;    // Static so I can use it in WndProc
+        static bool capture_text_input;     // Static so I can use it in WndProc
         HWND target_window;
         bool show_settings;
         ImVec2 settings_icon_size;
