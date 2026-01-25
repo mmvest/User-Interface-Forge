@@ -1,7 +1,9 @@
 #include <cstddef>
 #include <filesystem>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 #include "imgui\imgui_impl_win32.h"
 #include "plog\Log.h"
@@ -11,10 +13,15 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-WNDPROC UiManager::original_wndproc = nullptr;
-bool UiManager::capture_text_input = false;
+// Since we are now hooking multiple windows, we use this to keep track of the original WndProcs
+std::unordered_map<HWND, WNDPROC> UiManager::original_wndprocs;
 
-UiManager::UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y) : target_window(target_window), show_settings(false), settings_icon_size(settings_icon_size_x, settings_icon_size_y)
+// The mutex protects the map because hooks can be installed/removed while messages are arriving.
+std::mutex UiManager::wndproc_mutex;
+
+ImGuiContext* UiManager::imgui_context = nullptr;
+
+UiManager::UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y) : target_window(target_window), root_window(nullptr), show_settings(false), settings_icon_size(settings_icon_size_x, settings_icon_size_y)
 {
     InitializeImGui();
 };
@@ -25,23 +32,86 @@ UiManager::~UiManager()
 }
 
 void UiManager::InitializeImGui() 
-/**
- * @brief Initializes the ImGui library for rendering UI elements.
- * 
- * This function sets up the necessary infrastructure to integrate ImGui into the existing graphics pipeline
- * 
- * @param none
- */
 {
-    original_wndproc = (WNDPROC)SetWindowLongPtrW(target_window, GWLP_WNDPROC, (LONG_PTR)WndProc);
-    if(!original_wndproc) throw std::runtime_error("Failed to set new address for the window procedure. Error: " + std::to_string(GetLastError()));
+    // In some apps, like those using Qt, the swapchain output window may be a child. Since keyboard focus
+    // may go to the root window instead of the child, we want to hook both so we see keyboard messages
+    // regardless of which HWND ends up receiving the keyboard .
+    root_window = GetAncestor(target_window, GA_ROOT);
+    if (!root_window)
+        root_window = target_window;
+
+    if (!HookWndProc(target_window))
+        throw std::runtime_error("Failed to set new address for the window procedure. Error: " + std::to_string(GetLastError()));
+
+    if (root_window != target_window)
+    {
+        if (!HookWndProc(root_window))
+            throw std::runtime_error("Failed to set new address for the root window procedure. Error: " + std::to_string(GetLastError()));
+    }
+
+    // We want to hook any other windows owned by this process just in case any random window is eating
+    // the keyboard inputs that we want for our UI. Kinda heavy-handed, but best that I got for now.
+    // Technically this also hooks the root window, but based on MSDN, using enumwindows (which this
+    // function does) is "more reliable" than using GetWindow in a loop, but I still hook the parent
+    // window explicitly JUUUUUST in case something goes wrong here.
+    HookAllProcessWindows();
     
     mod_context = ImGui::CreateContext();
     
+    ImGui::SetCurrentContext(mod_context);
+    imgui_context = mod_context;
     ImGuiIO& io = ImGui::GetIO();
     
     io.ConfigFlags = ImGuiConfigFlags_NoMouseCursorChange;
-    if(!ImGui_ImplWin32_Init(target_window)) throw std::runtime_error("Unable to initialize ImGui Win32 Implementation.");
+
+    // Prefer the top-level/root HWND for proper IME/text handling.
+    if(!ImGui_ImplWin32_Init(root_window)) throw std::runtime_error("Unable to initialize ImGui Win32 Implementation.");
+}
+
+bool UiManager::HookWndProc(HWND hwnd)
+{
+    if (!hwnd)
+        return false;
+
+    // Hooking can be triggered from initialization and rescanning/window enumeration callbacks.
+    // Because of this and the fact multiple threads could try accessing original_wndprocs simultaneously,
+    // we gotta start being safer and actually use mutexes to keep us from race conditions, double-hooking, etc.
+    std::lock_guard<std::mutex> lock(wndproc_mutex);
+    if (original_wndprocs.find(hwnd) != original_wndprocs.end())
+        return true;
+
+    // Replace the window procedure so we can route keyboard messages into ImGui and optionally block them
+    // when ImGui wants to capture the keyboard. We save the previous WNDPROC so message handling remains
+    // correct when we forward to the host app, and so we can restore it on shutdown.
+    WNDPROC original = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc)));
+    if (!original)
+        return false;
+
+    original_wndprocs.emplace(hwnd, original);
+    return true;
+}
+
+void UiManager::UnhookWndProc(HWND hwnd)
+{
+    if (!hwnd)
+        return;
+
+    std::lock_guard<std::mutex> lock(wndproc_mutex);
+    auto it = original_wndprocs.find(hwnd);
+    if (it == original_wndprocs.end())
+        return;
+
+    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(it->second));
+    original_wndprocs.erase(it);
+}
+
+WNDPROC UiManager::GetOriginalWndProc(HWND hwnd)
+{
+    std::lock_guard<std::mutex> lock(wndproc_mutex);
+    auto it = original_wndprocs.find(hwnd);
+    if (it == original_wndprocs.end())
+        return nullptr;
+    return it->second;
 }
 
 void UiManager::RenderSettingsIcon(void* settings_icon)
@@ -203,6 +273,17 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
 
 void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* settings_icon)
 {
+    ImGui::SetCurrentContext(mod_context);
+
+    // We want to periodically hook new windows created after startup. For example, 
+    // PCSX2 (the emulator) uses QT which can create/destroy child HWNDs dynamically.
+    static ULONGLONG last_hook_scan_ms = 0;
+    const ULONGLONG now_ms = GetTickCount64();
+    if (now_ms - last_hook_scan_ms >= 2000)
+    {
+        last_hook_scan_ms = now_ms;
+        HookAllProcessWindows();
+    }
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     
@@ -210,16 +291,6 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
     // CreateTestWindow();
     RenderSettingsIcon(settings_icon);
     if(show_settings) RenderSettingsWindow(script_manager);
-    // Check if we want to capture keystrokes
-    ImGuiIO io = ImGui::GetIO();
-    if(io.WantCaptureKeyboard && io.WantTextInput)
-    {
-        capture_text_input = true;
-    } 
-    else 
-    {
-        capture_text_input = false;
-    }
     script_manager.RunScripts();
 
     ImGui::Render();
@@ -232,22 +303,31 @@ bool UiManager::UpdateTargetWindow(HWND new_target_window)
         return false;
     }
 
-    if (original_wndproc && target_window)
-    {
-        SetWindowLongPtrW(target_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_wndproc));
-        original_wndproc = nullptr;
-    }
+    const HWND old_target = target_window;
+    const HWND old_root = root_window;
+    UnhookWndProc(old_target);
+    if (old_root && old_root != old_target)
+        UnhookWndProc(old_root);
 
     ImGui_ImplWin32_Shutdown();
 
     target_window = new_target_window;
-    original_wndproc = (WNDPROC)SetWindowLongPtrW(target_window, GWLP_WNDPROC, (LONG_PTR)WndProc);
-    if (!original_wndproc)
+    root_window = GetAncestor(target_window, GA_ROOT);
+    if (!root_window)
+        root_window = target_window;
+
+    if (!HookWndProc(target_window))
     {
         PLOG_WARNING << "Failed to set new address for the window procedure after window change. Error: " << GetLastError();
     }
 
-    if (!ImGui_ImplWin32_Init(target_window))
+    if (root_window != target_window)
+    {
+        if (!HookWndProc(root_window))
+            PLOG_WARNING << "Failed to set new address for the root window procedure after window change. Error: " << GetLastError();
+    }
+
+    if (!ImGui_ImplWin32_Init(root_window))
     {
         PLOG_WARNING << "Unable to initialize ImGui Win32 Implementation after window change.";
     }
@@ -263,15 +343,43 @@ void UiManager::CleanupUiManager()
         ImGui::DestroyContext(mod_context);
     }
 
+    imgui_context = nullptr;
+    UnhookAllWndProcs();
+}
 
-    if(original_wndproc)
+void UiManager::UnhookAllWndProcs()
+{
+    std::lock_guard<std::mutex> lock(wndproc_mutex);
+    for (const auto& [hwnd, original] : original_wndprocs)
     {
-        if(!SetWindowLongPtrW(target_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_wndproc)))
-        {
-            std::string err_msg = std::string("Failed to restore original window procedure. Error: ") + std::to_string(GetLastError());
-            // TODO: Log error message
-        }
+        if (hwnd && original)
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original));
     }
+    original_wndprocs.clear();
+}
+
+BOOL CALLBACK UiManager::HookChildProc(HWND hwnd, LPARAM)
+{
+    HookWndProc(hwnd);
+    return TRUE;
+}
+
+BOOL CALLBACK UiManager::HookTopLevelProc(HWND hwnd, LPARAM lparam)
+{
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != static_cast<DWORD>(lparam))
+        return TRUE;
+
+    HookWndProc(hwnd);
+    EnumChildWindows(hwnd, HookChildProc, 0);
+    return TRUE;
+}
+
+void UiManager::HookAllProcessWindows()
+{
+    const DWORD pid = GetCurrentProcessId();
+    EnumWindows(HookTopLevelProc, static_cast<LPARAM>(pid));
 }
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -412,20 +520,30 @@ static bool HandleKeyboardInput(UINT msg, WPARAM wParam, LPARAM lParam)
 
 LRESULT WINAPI UiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    // This is our manual input handling logic. I am not entirely sure what the repercussions
-    // are of handling input myself in all applications. I do not think it should cause any
-    // major problems since we are only handling keyboard input manually if an imgui input
-    // text box is selected. Note that currently, I do not think our input handling supports
-    // all languages... I'd have to do more research on IEM (I think that is what it is called)
-    // and figure out how that all works. For now, it seems to mostly work so I am happy with it.
-    if(capture_text_input)
+    LRESULT imgui_handled = 0;
+    if (imgui_context)
     {
-        if(HandleKeyboardInput(msg, wParam, lParam)) return 0;
+        ImGui::SetCurrentContext(imgui_context);
+        imgui_handled = ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
     }
-    
-    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
 
-    return CallWindowProcW(original_wndproc, hWnd, msg, wParam, lParam);
+    // When ImGui is actively interacting with UI, swallow keyboard input so the host app doesn't also act on it.
+    if (imgui_context)
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        const bool is_keyboard_message =
+            msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP ||
+            msg == WM_CHAR || msg == WM_SYSCHAR ||
+            msg == WM_IME_STARTCOMPOSITION || msg == WM_IME_COMPOSITION || msg == WM_IME_ENDCOMPOSITION;
+
+        if (io.WantCaptureKeyboard && is_keyboard_message)
+            return imgui_handled ? imgui_handled : 0;
+    }
+
+    if (WNDPROC original = GetOriginalWndProc(hWnd))
+        return CallWindowProcW(original, hWnd, msg, wParam, lParam);
+
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
 void UiManager::CreateTestWindow()

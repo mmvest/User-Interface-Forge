@@ -1,5 +1,7 @@
 #pragma once
 #include <Windows.h>
+#include <unordered_map>
+#include <mutex>
 
 #include "imgui\imgui.h"
 #include "core\forgescript_manager.h"
@@ -84,10 +86,85 @@ class UiManager
          * @return LRESULT result of the message processing.
          */
         static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-        
-        static WNDPROC original_wndproc;    // Static so I can use it in WndProc
-        static bool capture_text_input;     // Static so I can use it in WndProc
+         
+        static std::mutex wndproc_mutex;
+        static std::unordered_map<HWND, WNDPROC> original_wndprocs;
+        static ImGuiContext* imgui_context;
+
+        /**
+         * @brief Replaces a window's procedure so keyboard input can be routed through ImGui.
+         *
+         * This keeps the original WNDPROC so we can forward messages and cleanly restore the host window
+         * when the UI manager is destroyed.
+         *
+         * @param hwnd Handle to the window to hook.
+         * @return True if the hook is installed (or already present).
+         */
+        static bool HookWndProc(HWND hwnd);
+
+        /**
+         * @brief Restores a previously-hooked window procedure.
+         *
+         * Restoring the original WNDPROC prevents leaving the host application in a broken state after
+         * unloading or when the swap chain output window changes.
+         *
+         * @param hwnd Handle to the window to unhook.
+         */
+        static void UnhookWndProc(HWND hwnd);
+
+        /**
+         * @brief Restores all window procedures hooked by this UI manager.
+         *
+         * This is used during shutdown so every window we touched is returned to its original message
+         * handling behavior.
+         */
+        static void UnhookAllWndProcs();
+
+        /**
+         * @brief Looks up the saved original window procedure for a hooked HWND.
+         *
+         * This allows our custom WndProc to forward messages to the host's original handler when we
+         * are not explicitly capturing keyboard input.
+         *
+         * @param hwnd Handle to the window whose original WNDPROC is needed.
+         * @return The original WNDPROC, or nullptr if the window is not hooked.
+         */
+        static WNDPROC GetOriginalWndProc(HWND hwnd);
+
+        /**
+         * @brief Hooks all windows owned by the current process.
+         *
+         * Some apps create multiple HWNDs (or re-parent / recreate children) and keyboard focus can land on
+         * a different window than the swap chain output. Hooking all process windows makes the keyboard
+         * capture behavior consistent across those cases.
+         */
+        static void HookAllProcessWindows();
+
+        /**
+         * @brief Enumeration callback for hooking child windows.
+         *
+         * This is used with window enumeration APIs so we can hook newly discovered child
+         * HWNDs without needing the host app to explicitly expose them.
+         *
+         * @param hwnd Child window handle encountered during enumeration.
+         * @param lparam User data passed through enumeration.
+         * @return TRUE to continue enumeration.
+         */
+        static BOOL CALLBACK HookChildProc(HWND hwnd, LPARAM lparam);
+
+        /**
+         * @brief Enumeration callback for hooking top-level windows.
+         *
+         * Hooking top-level windows helps ensure we see keyboard messages even when focus is placed on a
+         * different HWND than the one we originally targeted.
+         *
+         * @param hwnd Top-level window handle encountered during enumeration.
+         * @param lparam User data passed through enumeration.
+         * @return TRUE to continue enumeration.
+         */
+        static BOOL CALLBACK HookTopLevelProc(HWND hwnd, LPARAM lparam);
         HWND target_window;
+        HWND root_window;
         bool show_settings;
         ImVec2 settings_icon_size;
 
