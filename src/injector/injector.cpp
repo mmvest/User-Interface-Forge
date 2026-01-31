@@ -229,16 +229,27 @@ int wmain(int argc, wchar_t** argv)
     PLOG_DEBUG << L"LOGGING LEVEL: " << logging_level;
     PLOG_DEBUG << L"CORE DLL PATH: " << core_dll_path;
     PLOG_DEBUG << L"LOG FILE NAME: " << log_file_name;
-    PLOG_DEBUG << L"MAX LOG FILES: " << max_log_files;
-    PLOG_DEBUG << L"MAX LOG SIZE: " << max_log_size;
-
-	PLOG_DEBUG << L"Parsing arguments...";
+ 	PLOG_DEBUG << L"MAX LOG FILES: " << max_log_files;
+     PLOG_DEBUG << L"MAX LOG SIZE: " << max_log_size;
+ 
+ 	PLOG_DEBUG << L"Parsing arguments...";
+    if (core_dll_path.empty())
+    {
+        PLOG_ERROR << L"Core DLL path is empty. Aborting.";
+        goto cleanup;
+    }
     if (!parse_args(argc, argv))
     {
         print_usage(argv[0]);
         goto cleanup;
     }
-	PLOG_DEBUG << L"Arguments parsed successfully.";
+    if (target_process_pid == 0 && (target_process_name == NULL || target_process_name[0] == L'\0'))
+    {
+        PLOG_ERROR << L"Must specify a target process via -p pid or -n process_name.";
+        print_usage(argv[0]);
+        goto cleanup;
+    }
+ 	PLOG_DEBUG << L"Arguments parsed successfully.";
 
     if (is_using_name)
     {
