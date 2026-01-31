@@ -307,7 +307,7 @@ void OnGraphicsApiInvoke(void* params)
     ui_manager->RenderUiElements(*script_manager, settings_icon);
     graphics_api->Render();
 
-    CoreUtils::ProcessCustomInputs();  // Put this here so it will return straight into calling the original Graphics API function
+    CoreUtils::ProcessCustomInputs(graphics_api->target_window);  // Put this here so it will return straight into calling the original Graphics API function
     return;
 }
 

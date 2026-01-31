@@ -65,7 +65,7 @@ UiForge.exe -n <target_application_name>
 ```
 As long as the application is actively rendering frames using a supported graphics api, you should see an icon pop up in the top left corner of the window.
 
-To stop UiForge, just press the END key. Upon hitting the END key, a dialog box should pop up telling you that UiForge has cleaned up.
+To stop UiForge, press `Ctrl+Alt+Shift+End`. Upon pressing this key combo, a dialog box should pop up telling you that UiForge has cleaned up.
 
 As of right now, there is no way to change this keybind except by changing the code itself, but I plan to add the ability to manage keybinds in the future. 
 

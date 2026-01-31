@@ -1,4 +1,6 @@
 #pragma once
+#include <Windows.h>
+
 namespace CoreUtils
 {
     /**
@@ -23,8 +25,7 @@ namespace CoreUtils
     /**
      * @brief Processes custom input actions for UiForge.
      *
-     * This function monitors specific keyboard input (e.g., `VK_END`) to trigger
-     * custom actions, such as cleanup operations.
+     * This function monitors specific keyboard input to trigger custom actions, such as cleanup operations.
      */
-    void ProcessCustomInputs();
+    void ProcessCustomInputs(HWND target_window);
 }
