@@ -1,5 +1,6 @@
 #pragma once
 #include <Windows.h>
+#include <string>
 
 namespace CoreUtils
 {
@@ -11,7 +12,7 @@ namespace CoreUtils
      *
      * @param err_msg The error message to display.
      */
-    void ErrorMessageBox(const char* err_msg);
+    void ErrorMessageBox(std::string err_msg);
 
     /**
      * @brief Displays an informational message in a message box.
@@ -20,7 +21,7 @@ namespace CoreUtils
      *
      * @param info_msg The informational message to display.
      */
-    void InfoMessageBox(const char* info_msg);
+    void InfoMessageBox(std::string info_msg);
 
     /**
      * @brief Processes custom input actions for UiForge.

@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cstdint>
+#include <string>
 #include <thread>
 
 #include "core\util.h"
@@ -8,14 +9,18 @@ extern std::atomic<bool> needs_cleanup;         // From uif_core.cpp
 
 namespace CoreUtils
 {
-    void ErrorMessageBox(const char* err_msg)
+    void ErrorMessageBox(std::string err_msg)
     {
-        std::thread([err_msg] { MessageBoxA(nullptr, err_msg, "UiForge Error",  MB_OK | MB_ICONERROR); }).detach();
+        std::thread([msg = std::move(err_msg)] {
+            MessageBoxA(nullptr, msg.c_str(), "UiForge Error", MB_OK | MB_ICONERROR);
+        }).detach();
     }
 
-    void InfoMessageBox(const char* info_msg)
+    void InfoMessageBox(std::string info_msg)
     {
-        std::thread([info_msg] { MessageBoxA(nullptr, info_msg, "UiForge Message",  MB_OK); }).detach();
+        std::thread([msg = std::move(info_msg)] {
+            MessageBoxA(nullptr, msg.c_str(), "UiForge Message", MB_OK);
+        }).detach();
     }
 
     void ProcessCustomInputs(HWND target_window)

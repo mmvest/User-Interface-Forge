@@ -99,6 +99,7 @@ UiManager* ui_manager;
 ForgeScriptManager* script_manager;
 
 // Settings
+std::string config_parent_dir;
 void* settings_icon = nullptr;
 std::string settings_icon_file;
 float settings_icon_size_x = 32.0f;
@@ -147,7 +148,7 @@ BOOL APIENTRY DllMain( HMODULE h_module, DWORD  ul_reason_for_call, LPVOID reser
             if (!injected_main_thread)
             {
                 std::string err_msg("UiForge failed to start properly. Error: " + std::to_string(GetLastError()));
-                CoreUtils::ErrorMessageBox(err_msg.c_str());
+                CoreUtils::ErrorMessageBox(std::move(err_msg));
                 break;
             }
 
@@ -187,7 +188,6 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     }
     catch(const std::exception& err)
     {
-        PLOG_FATAL << err.what();        
         CoreUtils::ErrorMessageBox(err.what());
         return EXIT_FAILURE;
     }
@@ -199,7 +199,7 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     {
         std::string err_msg("Failed to initialize graphics api hooking functionality. Kiero status: " + std::to_string(kiero_is_initialized) + ". (See Kiero github or source for more info)");
         PLOG_FATAL << err_msg;
-        CoreUtils::ErrorMessageBox(err_msg.c_str());
+        CoreUtils::ErrorMessageBox(std::move(err_msg));
         return EXIT_FAILURE;
     }
 
@@ -225,7 +225,7 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     {
         std::string err_msg("Failed to hook graphics api \"present\" function. Kiero status: " + std::to_string(kiero_is_bound) + ". (See Kiero github or source for more info)\n");
         PLOG_FATAL << err_msg;
-        CoreUtils::ErrorMessageBox(err_msg.c_str());
+        CoreUtils::ErrorMessageBox(std::move(err_msg));
         return EXIT_FAILURE;
     }
 
@@ -323,7 +323,7 @@ void OnGraphicsApiInvoke(void* params)
  * This function initializes critical directories, logging parameters, and 
  * other settings required for the application to function properly.
  *
- * @throws std::runtime_error If the module file name cannot be retrieved.
+ * @throws std::runtime_error If the module file name cannot be retrieved or no config file exists.
  */
 void LoadConfiguration()
 {
@@ -334,24 +334,48 @@ void LoadConfiguration()
     }
     uiforge_root_dir = std::filesystem::path(path_to_dll).parent_path().parent_path().string();
 
-    uiforge_scripts_dir = std::string(uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_SCRIPT_DIR"));
+    // We need to account for the fact that UiForge may be bundled with other code. If the default config location
+    // is not used (e.g. uiforge_root_dir\config), then we will go up one more level and check there. If there is no
+    // config there, then we must error out and cleanup.
+    std::string bundled_root_dir = std::filesystem::path(uiforge_root_dir).parent_path().string();
+    if( std::filesystem::exists(uiforge_root_dir + "\\" + CONFIG_FILE) && 
+        std::filesystem::is_regular_file(uiforge_root_dir + "\\" + CONFIG_FILE))
+    {
+        config_parent_dir = uiforge_root_dir;
+    }
+    else if(std::filesystem::exists(bundled_root_dir + "\\" + CONFIG_FILE) && 
+            std::filesystem::is_regular_file(bundled_root_dir + "\\" + CONFIG_FILE))
+    {
+        config_parent_dir = bundled_root_dir;
+    }
+    else
+    {
+        throw std::runtime_error(
+            "Failed to locate config. Be sure a config file is defined in " +
+            uiforge_root_dir +
+            " or " +
+            bundled_root_dir +
+            ".");
+    }
 
-    uiforge_modules_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_MODULES_DIR"));
+    uiforge_scripts_dir = std::string(config_parent_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "FORGE_SCRIPT_DIR"));
 
-    uiforge_resources_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "FORGE_RESOURCES_DIR"));
+    uiforge_modules_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "FORGE_MODULES_DIR"));
 
-    settings_icon_file = GET_CONFIG_VAL(uiforge_root_dir, std::string, "SETTINGS_ICON_FILE");
+    uiforge_resources_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "FORGE_RESOURCES_DIR"));
 
-    settings_icon_size_x = static_cast<float>(GET_CONFIG_VAL(uiforge_root_dir, int, "SETTINGS_ICON_SIZE_X"));
-    settings_icon_size_y = static_cast<float>(GET_CONFIG_VAL(uiforge_root_dir, int, "SETTINGS_ICON_SIZE_Y"));
+    settings_icon_file = GET_CONFIG_VAL(config_parent_dir, std::string, "SETTINGS_ICON_FILE");
 
-    max_log_size = GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_SIZE_BYTES");
+    settings_icon_size_x = static_cast<float>(GET_CONFIG_VAL(config_parent_dir, int, "SETTINGS_ICON_SIZE_X"));
+    settings_icon_size_y = static_cast<float>(GET_CONFIG_VAL(config_parent_dir, int, "SETTINGS_ICON_SIZE_Y"));
 
-    max_log_files = GET_CONFIG_VAL(uiforge_root_dir, int, "MAX_LOG_FILES");
+    max_log_size = GET_CONFIG_VAL(config_parent_dir, int, "MAX_LOG_SIZE_BYTES");
 
-    log_file_name = uiforge_root_dir + "\\" + GET_CONFIG_VAL(uiforge_root_dir, std::string, "LOG_FILE_NAME");
+    max_log_files = GET_CONFIG_VAL(config_parent_dir, int, "MAX_LOG_FILES");
 
-    logging_level  = static_cast<plog::Severity>(GET_CONFIG_VAL(uiforge_root_dir, int, "LOGGING_LEVEL"));
+    log_file_name = config_parent_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "LOG_FILE_NAME");
+
+    logging_level  = static_cast<plog::Severity>(GET_CONFIG_VAL(config_parent_dir, int, "LOGGING_LEVEL"));
 }
 
 /**
@@ -359,6 +383,7 @@ void LoadConfiguration()
  */
 void LogConfigValues()
 {
+    PLOG_DEBUG << "Config Parent Directory: " << config_parent_dir; 
     PLOG_DEBUG << "UiForge root directory: " << uiforge_root_dir;
     PLOG_DEBUG << "UiForge scripts directory: " << uiforge_scripts_dir;
     PLOG_DEBUG << "UiForge modules directory: " << uiforge_modules_dir;
@@ -581,7 +606,7 @@ void CleanupUiForge()
             graphics_api = nullptr;
         }
 
-        char* cleanup_msg = "UiForge Cleaned Up!";
+        const char* cleanup_msg = "UiForge Cleaned Up!";
         PLOG_DEBUG << cleanup_msg;
         CoreUtils::InfoMessageBox(cleanup_msg);
         FreeLibrary(core_module_handle);

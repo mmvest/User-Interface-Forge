@@ -211,6 +211,12 @@ int wmain(int argc, wchar_t** argv)
     const SIZE_T PAGE_SIZE_BYTES = 4096;
     const DWORD WAIT_TIME_MILLISECONDS = 5000;
 
+    if(!(std::filesystem::exists(CONFIG_FILE) && std::filesystem::is_regular_file(CONFIG_FILE)))
+    {
+        std::wcout << L"[!] Config file does not exist. Be sure a config file is defined in your current directory. See the github repo for an example config file.\n";
+        return return_code;
+    }
+
 	// Read in data from config file, specifically the name of the dll to inject
 	// and the logging level.
 	scl::config_file uif_config(CONFIG_FILE, scl::config_file::READ);
@@ -230,7 +236,7 @@ int wmain(int argc, wchar_t** argv)
     PLOG_DEBUG << L"CORE DLL PATH: " << core_dll_path;
     PLOG_DEBUG << L"LOG FILE NAME: " << log_file_name;
  	PLOG_DEBUG << L"MAX LOG FILES: " << max_log_files;
-     PLOG_DEBUG << L"MAX LOG SIZE: " << max_log_size;
+    PLOG_DEBUG << L"MAX LOG SIZE: " << max_log_size;
  
  	PLOG_DEBUG << L"Parsing arguments...";
     if (core_dll_path.empty())
