@@ -334,19 +334,20 @@ void LoadConfiguration()
     }
     uiforge_root_dir = std::filesystem::path(path_to_dll).parent_path().parent_path().string();
 
-    // We need to account for the fact that UiForge may be bundled with other code. If the default config location
-    // is not used (e.g. uiforge_root_dir\config), then we will go up one more level and check there. If there is no
+    // We need to account for the fact that UiForge may be bundled with other code. If there is a bundled
+    // config, we will use that. We determine this by going up one directory level from UiForge and checking
+    // if it exists there. If it does not, we default to the UiForge normal config. If there is no
     // config there, then we must error out and cleanup.
     std::string bundled_root_dir = std::filesystem::path(uiforge_root_dir).parent_path().string();
-    if( std::filesystem::exists(uiforge_root_dir + "\\" + CONFIG_FILE) && 
-        std::filesystem::is_regular_file(uiforge_root_dir + "\\" + CONFIG_FILE))
-    {
-        config_parent_dir = uiforge_root_dir;
-    }
-    else if(std::filesystem::exists(bundled_root_dir + "\\" + CONFIG_FILE) && 
+    if(std::filesystem::exists(bundled_root_dir + "\\" + CONFIG_FILE) && 
             std::filesystem::is_regular_file(bundled_root_dir + "\\" + CONFIG_FILE))
     {
         config_parent_dir = bundled_root_dir;
+    }
+    else if( std::filesystem::exists(uiforge_root_dir + "\\" + CONFIG_FILE) && 
+        std::filesystem::is_regular_file(uiforge_root_dir + "\\" + CONFIG_FILE))
+    {
+        config_parent_dir = uiforge_root_dir;
     }
     else
     {
