@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <atomic>
 #include <filesystem>
 #include <mutex>
 #include <stdexcept>
@@ -12,6 +13,7 @@
 #include "core\graphics_api.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+extern std::atomic<bool> needs_cleanup; // From core.cpp
 
 // Since we are now hooking multiple windows, we use this to keep track of the original WndProcs
 std::unordered_map<HWND, WNDPROC> UiManager::original_wndprocs;
@@ -267,6 +269,25 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
             }
         }
         ImGui::EndChild();
+
+        {
+            const char* exit_label = "Exit";
+            ImVec2 text_size = ImGui::CalcTextSize(exit_label);
+            float button_width = (text_size.x + style.FramePadding.x * 2.0f);
+            if (button_width < 80.0f) button_width = 80.0f;
+
+            ImVec2 content_max = ImGui::GetWindowContentRegionMax();
+            float x = content_max.x - button_width;
+            float y = content_max.y - ImGui::GetFrameHeight();
+            if (x < style.WindowPadding.x) x = style.WindowPadding.x;
+            if (y < style.WindowPadding.y) y = style.WindowPadding.y;
+
+            ImGui::SetCursorPos(ImVec2(x, y));
+            if (ImGui::Button(exit_label, ImVec2(button_width, 0.0f)))
+            {
+                needs_cleanup = true;
+            }
+        }
     }
     ImGui::End();
 }
