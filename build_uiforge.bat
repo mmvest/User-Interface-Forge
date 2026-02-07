@@ -66,23 +66,9 @@ if /I "%~1"=="core" set BUILD_CORE=true
 if /I "%~1"=="testd3d11" set BUILD_TESTD3D11=true
 if /I "%~1"=="ftxui" set BUILD_FTXUI=true
 
-@REM Build Injector
-if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
-if "%BUILD_INJECTOR%"=="true" (
-    echo Building Injector
-    if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
-    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /I"%FTXUI_INCLUDE_DIR%" /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp /link %LINK_FTXUI%
-    @REM /nologo      : Suppresses the compiler version info in output.
-    @REM /EHsc        : Enables standard C++ exception handling.
-    @REM /MT          : Statically links the multithreaded runtime library (matches FTXUI.lib).
-    @REM /Fe          : Specifies the output file name for the executable.
-    @REM %CSTD%       : Specifies the C++ standard to use.
-    if errorlevel 1 goto error
-)
-
 @REM Build FTXUI static library
 if "%BUILD_ALL%"=="true" set BUILD_FTXUI=true
-if "%BUILD_CORE%"=="true" set BUILD_FTXUI=true
+if "%BUILD_INJECTOR%"=="true" set BUILD_FTXUI=true
 if "%BUILD_FTXUI%"=="true" (
     echo Building FTXUI
     @REM Keep objects in separate subfolders to avoid name collisions.
@@ -127,6 +113,20 @@ if "%BUILD_FTXUI%"=="true" (
     if errorlevel 1 goto error
 
     lib /nologo /OUT:"%LIBS_DIR%\FTXUI.lib" "%OBJ_DIR_FTXUI%\screen\*.obj" "%OBJ_DIR_FTXUI%\dom\*.obj" "%OBJ_DIR_FTXUI%\component\*.obj"
+    if errorlevel 1 goto error
+)
+
+@REM Build Injector
+if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
+if "%BUILD_INJECTOR%"=="true" (
+    echo Building Injector
+    if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
+    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /I"%FTXUI_INCLUDE_DIR%" /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp /link %LINK_FTXUI%
+    @REM /nologo      : Suppresses the compiler version info in output.
+    @REM /EHsc        : Enables standard C++ exception handling.
+    @REM /MT          : Statically links the multithreaded runtime library (matches FTXUI.lib).
+    @REM /Fe          : Specifies the output file name for the executable.
+    @REM %CSTD%       : Specifies the C++ standard to use.
     if errorlevel 1 goto error
 )
 

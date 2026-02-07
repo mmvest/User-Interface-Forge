@@ -23,3 +23,9 @@ Doxyfile
 
 # Ignore the build directory
 bin/
+
+# Soon we will not be distributing pre-built .lib files and will only
+# have the source code for all of the libraries and they will need to
+# be manually built or a release package will need to be downloaded.
+# This is a temporary fix until we get to that point.
+FTXUI.lib
