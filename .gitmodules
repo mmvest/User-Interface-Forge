@@ -1,3 +1,6 @@
 [submodule "libs/InjectTools"]
 	path = libs/InjectTools
 	url = https://github.com/mmvest/InjectTools.git
+[submodule "libs/FTXUI"]
+	path = libs/FTXUI
+	url = https://github.com/ArthurSonzogni/FTXUI.git
