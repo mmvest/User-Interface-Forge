@@ -71,9 +71,10 @@ if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
 if "%BUILD_INJECTOR%"=="true" (
     echo Building Injector
     if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
-    cl /nologo /EHsc /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp
+    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /I"%FTXUI_INCLUDE_DIR%" /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp /link %LINK_FTXUI%
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /EHsc        : Enables standard C++ exception handling.
+    @REM /MT          : Statically links the multithreaded runtime library (matches FTXUI.lib).
     @REM /Fe          : Specifies the output file name for the executable.
     @REM %CSTD%       : Specifies the C++ standard to use.
     if errorlevel 1 goto error
@@ -84,23 +85,48 @@ if "%BUILD_ALL%"=="true" set BUILD_FTXUI=true
 if "%BUILD_CORE%"=="true" set BUILD_FTXUI=true
 if "%BUILD_FTXUI%"=="true" (
     echo Building FTXUI
-    if not exist "%OBJ_DIR_FTXUI%" mkdir "%OBJ_DIR_FTXUI%"
+    @REM Keep objects in separate subfolders to avoid name collisions.
+    if not exist "%OBJ_DIR_FTXUI%\screen" mkdir "%OBJ_DIR_FTXUI%\screen"
+    if not exist "%OBJ_DIR_FTXUI%\dom" mkdir "%OBJ_DIR_FTXUI%\dom"
+    if not exist "%OBJ_DIR_FTXUI%\component" mkdir "%OBJ_DIR_FTXUI%\component"
 
-    set "FTXUI_SOURCES="
-    for %%F in ("%FTXUI_SRC_DIR%\screen\*.cpp" "%FTXUI_SRC_DIR%\dom\*.cpp" "%FTXUI_SRC_DIR%\component\*.cpp") do (
+    set "FTXUI_SCREEN_SOURCES="
+    for %%F in ("%FTXUI_SRC_DIR%\screen\*.cpp") do (
         echo %%~nxF | findstr /I "_test.cpp fuzzer.cpp" >nul
-        if errorlevel 1 set "FTXUI_SOURCES=!FTXUI_SOURCES! "%%~fF""
+        if errorlevel 1 set "FTXUI_SCREEN_SOURCES=!FTXUI_SCREEN_SOURCES! "%%~fF""
+    )
+    set "FTXUI_DOM_SOURCES="
+    for %%F in ("%FTXUI_SRC_DIR%\dom\*.cpp") do (
+        echo %%~nxF | findstr /I "_test.cpp fuzzer.cpp" >nul
+        if errorlevel 1 set "FTXUI_DOM_SOURCES=!FTXUI_DOM_SOURCES! "%%~fF""
+    )
+    set "FTXUI_COMPONENT_SOURCES="
+    for %%F in ("%FTXUI_SRC_DIR%\component\*.cpp") do (
+        echo %%~nxF | findstr /I "_test.cpp fuzzer.cpp" >nul
+        if errorlevel 1 set "FTXUI_COMPONENT_SOURCES=!FTXUI_COMPONENT_SOURCES! "%%~fF""
     )
 
-    if "!FTXUI_SOURCES!"=="" (
-        echo ERROR: No FTXUI source files were found.
+    if "!FTXUI_SCREEN_SOURCES!"=="" (
+        echo ERROR: No FTXUI screen source files were found.
+        goto error
+    )
+    if "!FTXUI_DOM_SOURCES!"=="" (
+        echo ERROR: No FTXUI dom source files were found.
+        goto error
+    )
+    if "!FTXUI_COMPONENT_SOURCES!"=="" (
+        echo ERROR: No FTXUI component source files were found.
         goto error
     )
 
-    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\\" !FTXUI_SOURCES!
+    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\screen\\" !FTXUI_SCREEN_SOURCES!
+    if errorlevel 1 goto error
+    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\dom\\" !FTXUI_DOM_SOURCES!
+    if errorlevel 1 goto error
+    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\component\\" !FTXUI_COMPONENT_SOURCES!
     if errorlevel 1 goto error
 
-    lib /nologo /OUT:"%LIBS_DIR%\FTXUI.lib" "%OBJ_DIR_FTXUI%\*.obj"
+    lib /nologo /OUT:"%LIBS_DIR%\FTXUI.lib" "%OBJ_DIR_FTXUI%\screen\*.obj" "%OBJ_DIR_FTXUI%\dom\*.obj" "%OBJ_DIR_FTXUI%\component\*.obj"
     if errorlevel 1 goto error
 )
 
