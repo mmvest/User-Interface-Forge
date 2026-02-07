@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 ::======================================================================================================
 :: File:            build_uiforge.bat
@@ -25,7 +25,10 @@ set BIN_DIR=%CWD%bin
 set OBJ_DIR_INJECTOR=%BIN_DIR%\injector
 set OBJ_DIR_BINDINGS=%BIN_DIR%\bindings
 set OBJ_DIR_CORE=%BIN_DIR%\core
+set OBJ_DIR_FTXUI=%BIN_DIR%\ftxui
 set LIBS_DIR=%CWD%libs
+set FTXUI_SRC_DIR=%LIBS_DIR%\FTXUI\src\ftxui
+set FTXUI_INCLUDE_DIR=%LIBS_DIR%\FTXUI\include
 
 @REM Have to modify include  environment variable so all the files will link properly
 set INCLUDE=%CWD%include;%CWD%include\luajit;%INCLUDE%
@@ -38,9 +41,13 @@ set LINK_GRAPHICS=%LINK_D3D11%
 
 @REM LuaJIT linking
 set LINK_LUA=%LIBS_DIR%\lua51.lib
+set LINK_FTXUI=%LIBS_DIR%\FTXUI.lib
 
 @REM sol_ImGui
 set SOL_IMGUI_DEFINES=IMGUI_NO_DOCKING
+
+@REM Manual cleanup mode (no build).
+if /I "%~1"=="cleanup" goto cleanup
 
 @REM Initialize build environment
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -50,11 +57,14 @@ set BUILD_ALL=false
 set BUILD_INJECTOR=false
 set BUILD_CORE=false
 set BUILD_TESTD3D11=false
+set BUILD_FTXUI=false
+set BUILD_FAILED=false
 
 if /I "%~1"=="" set BUILD_ALL=true
 if /I "%~1"=="injector" set BUILD_INJECTOR=true
 if /I "%~1"=="core" set BUILD_CORE=true
 if /I "%~1"=="testd3d11" set BUILD_TESTD3D11=true
+if /I "%~1"=="ftxui" set BUILD_FTXUI=true
 
 @REM Build Injector
 if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
@@ -66,6 +76,31 @@ if "%BUILD_INJECTOR%"=="true" (
     @REM /EHsc        : Enables standard C++ exception handling.
     @REM /Fe          : Specifies the output file name for the executable.
     @REM %CSTD%       : Specifies the C++ standard to use.
+    if errorlevel 1 goto error
+)
+
+@REM Build FTXUI static library
+if "%BUILD_ALL%"=="true" set BUILD_FTXUI=true
+if "%BUILD_CORE%"=="true" set BUILD_FTXUI=true
+if "%BUILD_FTXUI%"=="true" (
+    echo Building FTXUI
+    if not exist "%OBJ_DIR_FTXUI%" mkdir "%OBJ_DIR_FTXUI%"
+
+    set "FTXUI_SOURCES="
+    for %%F in ("%FTXUI_SRC_DIR%\screen\*.cpp" "%FTXUI_SRC_DIR%\dom\*.cpp" "%FTXUI_SRC_DIR%\component\*.cpp") do (
+        echo %%~nxF | findstr /I "_test.cpp fuzzer.cpp" >nul
+        if errorlevel 1 set "FTXUI_SOURCES=!FTXUI_SOURCES! "%%~fF""
+    )
+
+    if "!FTXUI_SOURCES!"=="" (
+        echo ERROR: No FTXUI source files were found.
+        goto error
+    )
+
+    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\\" !FTXUI_SOURCES!
+    if errorlevel 1 goto error
+
+    lib /nologo /OUT:"%LIBS_DIR%\FTXUI.lib" "%OBJ_DIR_FTXUI%\*.obj"
     if errorlevel 1 goto error
 )
 
@@ -113,21 +148,25 @@ goto cleanup
 
 :error
 echo ERROR: Build failed
+set BUILD_FAILED=true
 
 :cleanup
 echo Cleaning up
-@REM Remember, the following command executes silently and will not display any output
-if exist %BIN_DIR%\injector rmdir /S /Q %BIN_DIR%\injector
+@REM Remove root-level intermediate artifacts from this build.
+pushd "%CWD%" >nul 2>&1
+if not errorlevel 1 (
+    del /F /Q "*.obj" "*.pdb" "*.ilk" >nul 2>&1
+    popd >nul
+)
 
-@REM Clean other build artifacts if we have any for some reason
-@REM >nul redirects stdout to nul, suppressing output
-@REM 2>&1 redirects stderr to stdout, which in this case will redirect to nul, thus getting rid of any terminal output for these commands
-del %BIN_DIR%\*.exp >nul 2>&1
-del %BIN_DIR%\*.lib >nul 2>&1
-del *.obj >nul 2>&1
-del *.exp >nul 2>&1
-del *.lib >nul 2>&1
+@REM Remove ALL subdirectories under bin.
+if exist "%BIN_DIR%" (
+    for /d %%D in ("%BIN_DIR%\*") do rd /S /Q "%%~fD" >nul 2>&1
+)
 
+if "%BUILD_FAILED%"=="true" (
+    exit /b 1
+)
 exit /b 0
 
 :build_all
