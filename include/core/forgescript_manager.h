@@ -1,9 +1,12 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "luajit\lua.hpp"
@@ -72,6 +75,16 @@ class ForgeScript
         void Run(lua_State* curr_lua_state);
 
         /**
+         * @brief Reload script contents from disk and reset its isolated Lua environment.
+         *
+         * Preserves the enabled/disabled state of the script. If the script was enabled,
+         * the disable callback is executed before reloading.
+         *
+         * @param curr_lua_state The Lua state used to manage registry references for the script environment.
+         */
+        void Reload(lua_State* curr_lua_state);
+
+        /**
          * @brief Executes the Lua Scripts registered settings callback function.
          * 
          * @throws std::runtime_error If the function fails to execute or the settings callback has not been set. 
@@ -110,6 +123,35 @@ class ForgeScript
          */
         std::string GetFileName();
 
+        /**
+         * @brief Returns the last observed write time of the script file on disk.
+         */
+        std::filesystem::file_time_type GetLastWriteTime() const;
+
+        /**
+         * @brief Returns the last time this script was loaded/reloaded.
+         */
+        std::chrono::system_clock::time_point GetLastReloadTime() const;
+
+        /**
+         * @brief Formats the last observed write time into a human-readable string.
+         */
+        std::string GetLastWriteTimeString() const;
+
+        /**
+         * @brief Formats the last reload time into a human-readable string.
+         */
+        std::string GetLastReloadTimeString() const;
+
+        /**
+         * @brief Poll the script file write time and report if it differs from the loaded version.
+         *
+         * Updates the script's last observed write time.
+         *
+         * @return true if the file on disk appears newer/different than the currently loaded contents.
+         */
+        bool IsOutOfDateOnDisk();
+
 
         /**
          * @brief Retrieves the contents of the Lua script file.
@@ -144,9 +186,49 @@ class ForgeScript
         sol::protected_function settings_callback;          // Function to run to display script settings
         sol::protected_function disable_script_callback;    // Function to run when script is disabled
     private:
+        /**
+         * @brief Reads the script file from disk into memory.
+         *
+         * Populates `file_contents`, updates `stats.script_size`, and recomputes `hash`.
+         * Also captures the file's `last_write_time` so reload-on-save can detect changes.
+         *
+         * @throws std::runtime_error If the file cannot be opened/read.
+         */
+        void LoadFromDisk();
+
+        /**
+         * @brief Ensure this script has a per-script Lua environment table in the registry.
+         *
+         * Creates a new environment table and stores it under `env_ref` if one does not exist.
+         * The environment falls back to the real global table (`_G`) via `__index = _G` so
+         * scripts can still access globals like `ImGui` and `UiForge`
+         *
+         * Also sets `env._G = env` so script code cannot escape isolation via the `_G` global.
+         *
+         * @param curr_lua_state The active Lua state used to allocate and reference the environment.
+         */
+        void EnsureLuaEnvironment(lua_State* curr_lua_state);
+
+        /**
+         * @brief Dispose of the script's isolated Lua environment.
+         *
+         * Unrefs the registry entry referenced by `env_ref`, allowing the old environment
+         * and any script globals stored within to be garbage collected.
+         *
+         * @param curr_lua_state The active Lua state used to unref the environment.
+         */
+        void ResetLuaEnvironment(lua_State* curr_lua_state);
+
         std::string file_name;                      // The name of the Lua file
         std::string file_contents;                  // The contents of the script
         std::size_t hash;                           // hash of the contents, for quick comparison
+
+        int env_ref = LUA_NOREF;                    // Registry ref to this script's isolated environment table
+        std::filesystem::file_time_type loaded_write_time{};     // Write time of the file when contents were last loaded
+        std::filesystem::file_time_type observed_write_time{};   // Most recently observed write time on disk
+        bool has_write_time = false;
+        std::chrono::system_clock::time_point last_reload_time{};
+        bool has_reload_time = false;
 };
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -205,6 +287,26 @@ class ForgeScriptManager
          * @note Only enabled scripts are executed. Disabled scripts remain inactive.
          */
         void RunScripts();
+
+        /**
+         * @brief Configure reload-on-save behavior for all managed scripts.
+         *
+         * @param enabled If true, scripts are polled for file timestamp changes and reloaded automatically.
+         * @param poll_ms Minimum time between polling passes (milliseconds).
+         */
+        void SetReloadOnSave(bool enabled, uint32_t poll_ms);
+
+        /**
+         * @brief Request a script reload by its full file path.
+         *
+         * @note The reload occurs outside of script execution so we don't screw something up.
+         */
+        void RequestReload(const std::string& file_name);
+
+        /**
+         * @brief Request a reload for all scripts.
+         */
+        void RequestReloadAll();
         
         /**
          * @brief Registers a callback function on the currently executing script.
@@ -242,6 +344,11 @@ class ForgeScriptManager
         unsigned GetScriptCount();
 
         /**
+         * @brief Scans the scripts directory for new scripts and adds any that aren't already loaded.
+         */
+        void RefreshScripts();
+
+        /**
          * @brief Retrieve the debug stats of all scripts managed by the script manager and update the managers debug info with it.
          */
         void ForgeScriptManager::UpdateDebugStats();
@@ -258,8 +365,25 @@ class ForgeScriptManager
         ForgeScriptDebug stats;
 
     private:
+        /**
+         * @brief Apply any pending reload requests.
+         *
+         * Reload requests are queued (e.g. from the UI button or reload-on-save polling)
+         * and then processed at a safe point in the normal loop (outside of script execution).
+         *
+         * On reload failure, the error is logged and the script is disabled.
+         */
+        void ProcessPendingReloads();
+
         lua_State* uif_lua_state;                           // The lua state for the ForgeScripts to use when running
         std::string scripts_path;                           // The full path to the lua scripts that will be made into ForgeScript objects
         std::vector<std::unique_ptr<ForgeScript>> scripts;  // Vector to hold all ForgeScripts
         ForgeScript* currently_executing_script;            // Pointer to the currently executing ForgeScript
+
+        std::unordered_set<std::string> pending_reload;     // Full script paths pending reload
+
+        bool reload_on_save_enabled = false;
+        uint32_t reload_on_save_poll_ms = 2500;
+        std::chrono::steady_clock::time_point reload_on_save_last_poll{};
+        bool reload_on_save_has_polled = false;
 };

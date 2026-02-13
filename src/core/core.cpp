@@ -48,6 +48,7 @@
 
 #include <Windows.h>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <unknwn.h>
@@ -110,6 +111,10 @@ int max_log_size = 0;
 int max_log_files = 0;
 std::string log_file_name;
 plog::Severity logging_level;
+
+// Script reloading
+int reload_on_save = 0;
+int reload_on_save_poll_ms = 2500;
 
 // For Lua
 lua_State* uif_lua_state = nullptr;
@@ -365,18 +370,22 @@ void LoadConfiguration()
 
     uiforge_resources_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "FORGE_RESOURCES_DIR"));
 
+    reload_on_save = GET_CONFIG_VAL(config_parent_dir, unsigned int, "RELOAD_ON_SAVE");
+    reload_on_save_poll_ms = GET_CONFIG_VAL(config_parent_dir, unsigned int, "RELOAD_ON_SAVE_POLL_MS");
+    if (reload_on_save_poll_ms < 0) reload_on_save_poll_ms = 2500;
+
     settings_icon_file = GET_CONFIG_VAL(config_parent_dir, std::string, "SETTINGS_ICON_FILE");
 
-    settings_icon_size_x = static_cast<float>(GET_CONFIG_VAL(config_parent_dir, int, "SETTINGS_ICON_SIZE_X"));
-    settings_icon_size_y = static_cast<float>(GET_CONFIG_VAL(config_parent_dir, int, "SETTINGS_ICON_SIZE_Y"));
+    settings_icon_size_x = static_cast<float>(GET_CONFIG_VAL(config_parent_dir, unsigned int, "SETTINGS_ICON_SIZE_X"));
+    settings_icon_size_y = static_cast<float>(GET_CONFIG_VAL(config_parent_dir, unsigned int, "SETTINGS_ICON_SIZE_Y"));
 
-    max_log_size = GET_CONFIG_VAL(config_parent_dir, int, "MAX_LOG_SIZE_BYTES");
+    max_log_size = GET_CONFIG_VAL(config_parent_dir, unsigned int, "MAX_LOG_SIZE_BYTES");
 
-    max_log_files = GET_CONFIG_VAL(config_parent_dir, int, "MAX_LOG_FILES");
+    max_log_files = GET_CONFIG_VAL(config_parent_dir, unsigned int, "MAX_LOG_FILES");
 
     log_file_name = config_parent_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "LOG_FILE_NAME");
 
-    logging_level  = static_cast<plog::Severity>(GET_CONFIG_VAL(config_parent_dir, int, "LOGGING_LEVEL"));
+    logging_level  = static_cast<plog::Severity>(GET_CONFIG_VAL(config_parent_dir, unsigned int, "LOGGING_LEVEL"));
 }
 
 /**
@@ -389,6 +398,8 @@ void LogConfigValues()
     PLOG_DEBUG << "UiForge scripts directory: " << uiforge_scripts_dir;
     PLOG_DEBUG << "UiForge modules directory: " << uiforge_modules_dir;
     PLOG_DEBUG << "UiForge resources directory: " << uiforge_resources_dir;
+    PLOG_DEBUG << "Reload on save: " << reload_on_save;
+    PLOG_DEBUG << "Reload on save poll ms: " << reload_on_save_poll_ms;
     PLOG_DEBUG << "Settings icon file: " << settings_icon_file;
     PLOG_DEBUG << "Settings icon size x: " << settings_icon_size_x;
     PLOG_DEBUG << "Settings icon size y: " << settings_icon_size_y;
@@ -420,6 +431,7 @@ void InitializeLua()
     
     script_manager = new ForgeScriptManager(uiforge_scripts_dir, uif_lua_state);
     PLOG_DEBUG << "ForgeScriptManager created";
+    script_manager->SetReloadOnSave(reload_on_save != 0, reload_on_save_poll_ms);
 
     // Need the sol::state_view to initialize the sol bindings
     sol::state_view uif_sol_state_view(uif_lua_state);

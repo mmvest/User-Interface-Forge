@@ -181,9 +181,13 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
         float line_height = ImGui::GetTextLineHeightWithSpacing();
         float checkbox_height = ImGui::GetFrameHeight();
         ImVec2 parent_window_size = ImGui::GetContentRegionAvail();
-        ImVec2 forgescript_list_window_size(parent_window_size.x * 0.3f - style.ItemSpacing.x * 0.5, parent_window_size.y * 0.75f);
-        ImVec2 settings_child_window_size(parent_window_size.x * 0.7f - style.ItemSpacing.x * 0.5, parent_window_size.y * 0.75f);
+        float footer_height = ImGui::GetFrameHeight() + style.ItemSpacing.y;
+        float child_height = parent_window_size.y - footer_height;
+        if (child_height < 1.0f) child_height = 1.0f;
+        ImVec2 forgescript_list_window_size(parent_window_size.x * 0.3f - style.ItemSpacing.x * 0.5f, child_height);
+        ImVec2 settings_child_window_size(parent_window_size.x * 0.7f - style.ItemSpacing.x * 0.5f, child_height);
         
+        ImGui::BeginGroup();
         if(ImGui::BeginChild("ForgeScript List", forgescript_list_window_size, ImGuiChildFlags_Border))
         {
             for (unsigned idx = 0; idx < script_manager.GetScriptCount(); idx++)
@@ -207,8 +211,16 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
                 bool script_enabled = current_script->IsEnabled();
                 if(ImGui::Checkbox((std::string("##toggle_") + script_path.filename().string()).c_str(), &script_enabled))
                 {
-                    if(script_enabled) current_script->Enable();
-                    else current_script->Disable();
+                    if(script_enabled)
+                    {
+                        current_script->Enable();
+                        selected_script = current_script;
+                    }
+                    else
+                    {
+                        current_script->Disable();
+                        if (selected_script == current_script) selected_script = nullptr;
+                    }
                 }
                 ImGui::SameLine();
                 ImGui::TextUnformatted(script_path.filename().string().c_str()); // Manually placing name instead of using checkbox label so that clicking the name doesn't toggle the checkbox
@@ -216,15 +228,39 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
         }
         ImGui::EndChild();
 
+        const char* refresh_label = "Refresh##UiForgeSettingsRefresh";
+        const char* reload_label = "Hot-Reload##UiForgeSettingsHotReload";
+        float list_action_width = (forgescript_list_window_size.x - style.ItemSpacing.x) * 0.5f;
+        if (list_action_width < 1.0f) list_action_width = 1.0f;
+
+        if (ImGui::Button(refresh_label, ImVec2(list_action_width, 0.0f)))
+        {
+            script_manager.RefreshScripts();
+        }
+        ImGui::SameLine(0.0f, style.ItemSpacing.x);
+        if (ImGui::Button(reload_label, ImVec2(list_action_width, 0.0f)))
+        {
+            if (selected_script)
+            {
+                script_manager.RequestReload(selected_script->GetFileName());
+            }
+            else
+            {
+                script_manager.RequestReloadAll();
+            }
+        }
+        ImGui::EndGroup();
+
         ImGui::SameLine();
 
+        ImGui::BeginGroup();
         if(ImGui::BeginChild("ForgeScript Settings", settings_child_window_size, ImGuiChildFlags_Border))
         {
             if(ImGui::BeginTabBar("ForgeScript Settings Tabs"))
             {
                 if(ImGui::BeginTabItem("Settings"))
                 {
-                    if(selected_script)
+                    if(selected_script && selected_script->IsEnabled())
                     {
                         try
                         {
@@ -236,38 +272,34 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
                             PLOG_ERROR << err.what();
                         }
                     }
+                    else
+                    {
+                        ImGui::TextUnformatted("Enable or select a script to display its settings.");
+                    }
                     ImGui::EndTabItem();
                 }
 
                 if(ImGui::BeginTabItem("Debug"))
                 {
                     // If a script is selected, show stats about that script
-                    if(selected_script)
-                    {
-                        size_t avg_time_loading     = (selected_script->stats.times_executed) ? selected_script->stats.total_time_loading_from_mem / selected_script->stats.times_executed : 0;
-                        size_t avg_time_executing   = (selected_script->stats.times_executed) ? selected_script->stats.total_time_executing / selected_script->stats.times_executed : 0;
-                        ImGui::Text("File Name                                  : %s", selected_script->GetFileName().c_str());
-                        ImGui::Text("File Contents Size                         : %llu bytes", selected_script->stats.script_size);
-                        ImGui::Text("Time to Read File                          : %llu microseconds", selected_script->stats.time_to_read_file_contents);
-                        ImGui::Text("Time to Hash File                          : %llu microseconds", selected_script->stats.time_to_hash_file_contents);
-                        ImGui::Text("Avg Time Loading Script From Memory        : %llu microseconds", avg_time_loading);
-                        ImGui::Text("Avg Time Executing                         : %llu microseconds", avg_time_executing);
-                        ImGui::Text("Number of Times Script Executed            : %llu", selected_script->stats.times_executed);
-                    }
-
-                    // If no script is selected, show total stats
-                    if(!selected_script)
-                    {
-                        script_manager.UpdateDebugStats();
-                        size_t avg_time_loading     = (script_manager.stats.times_executed) ? script_manager.stats.total_time_loading_from_mem / script_manager.stats.times_executed : 0;
-                        size_t avg_time_executing   = (script_manager.stats.times_executed) ? script_manager.stats.total_time_executing / script_manager.stats.times_executed : 0;
-                        ImGui::Text("Total File Contents Size                   : %llu bytes", script_manager.stats.script_size);
-                        ImGui::Text("Time Reading Files                         : %llu microseconds", script_manager.stats.time_to_read_file_contents);
-                        ImGui::Text("Time Hashing Files                         : %llu microseconds", script_manager.stats.time_to_hash_file_contents);
-                        ImGui::Text("Avg Time Loading Scripts From Memory       : %llu microseconds", avg_time_loading);
-                        ImGui::Text("Avg Time Executing Scripts                 : %llu microseconds", avg_time_executing);
-                        ImGui::Text("Number of Times Scripts Executed           : %llu", script_manager.stats.times_executed);                        
-                    }
+                      if(selected_script)
+                      {
+                         size_t avg_time_loading     = (selected_script->stats.times_executed) ? selected_script->stats.total_time_loading_from_mem / selected_script->stats.times_executed : 0;
+                         size_t avg_time_executing   = (selected_script->stats.times_executed) ? selected_script->stats.total_time_executing / selected_script->stats.times_executed : 0;
+                         ImGui::Text("File Name                                  : %s", selected_script->GetFileName().c_str());
+                         ImGui::Text("Last Write Time                            : %s", selected_script->GetLastWriteTimeString().c_str());
+                         ImGui::Text("Last Reload Time                           : %s", selected_script->GetLastReloadTimeString().c_str());
+                         ImGui::Text("File Contents Size                         : %llu bytes", selected_script->stats.script_size);
+                         ImGui::Text("Time to Read File                          : %llu microseconds", selected_script->stats.time_to_read_file_contents);
+                         ImGui::Text("Time to Hash File                          : %llu microseconds", selected_script->stats.time_to_hash_file_contents);
+                         ImGui::Text("Avg Time Loading Script From Memory        : %llu microseconds", avg_time_loading);
+                          ImGui::Text("Avg Time Executing                         : %llu microseconds", avg_time_executing);
+                          ImGui::Text("Number of Times Script Executed            : %llu", selected_script->stats.times_executed);
+                     }
+                      else
+                      {
+                          ImGui::TextUnformatted("Select a script to display its debug stats.");
+                      }
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();
@@ -276,31 +308,29 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
         ImGui::EndChild();
 
         const char* close_label = "Close##UiForgeSettingsClose";
-        const ImVec2 close_text_size = ImGui::CalcTextSize(close_label);
-        float close_button_width = (close_text_size.x + style.FramePadding.x * 2.0f);
-        if (close_button_width < 80.0f) close_button_width = 80.0f;
-
         const char* eject_label = "Eject";
+
+        const ImVec2 close_text_size = ImGui::CalcTextSize(close_label);
         const ImVec2 eject_text_size = ImGui::CalcTextSize(eject_label);
-        float eject_button_width = (eject_text_size.x + style.FramePadding.x * 2.0f);
-        if (eject_button_width < 80.0f) eject_button_width = 80.0f;
- 
-        const ImVec2 content_max = ImGui::GetWindowContentRegionMax();
-        float buttons_x = content_max.x - (close_button_width + style.ItemSpacing.x + eject_button_width);
-        float eject_y = content_max.y - ImGui::GetFrameHeight();
-        if (buttons_x < style.WindowPadding.x) buttons_x = style.WindowPadding.x;
-        if (eject_y < style.WindowPadding.y) eject_y = style.WindowPadding.y;
- 
-        ImGui::SetCursorPos(ImVec2(buttons_x, eject_y));
-        if (ImGui::Button(close_label, ImVec2(close_button_width, 0.0f)))
+        float settings_action_width = (std::max)(close_text_size.x, eject_text_size.x) + style.FramePadding.x * 2.0f;
+        settings_action_width = (std::max)(settings_action_width, 80.0f);
+        settings_action_width = (std::min)(settings_action_width, 140.0f);
+
+        const float settings_buttons_total_width = settings_action_width * 2.0f + style.ItemSpacing.x;
+        const float settings_group_start_x = ImGui::GetCursorPosX();
+        const float settings_right_aligned_x = settings_group_start_x + (settings_child_window_size.x - settings_buttons_total_width);
+        ImGui::SetCursorPosX((settings_right_aligned_x > settings_group_start_x) ? settings_right_aligned_x : settings_group_start_x);
+
+        if (ImGui::Button(close_label, ImVec2(settings_action_width, 0.0f)))
         {
             show_settings = false;
         }
         ImGui::SameLine(0.0f, style.ItemSpacing.x);
-        if (ImGui::Button(eject_label, ImVec2(eject_button_width, 0.0f)))
+        if (ImGui::Button(eject_label, ImVec2(settings_action_width, 0.0f)))
         {
             needs_cleanup = true;
         }
+        ImGui::EndGroup();
     }
     ImGui::End();
 }
