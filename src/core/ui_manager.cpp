@@ -270,23 +270,31 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
         }
         ImGui::EndChild();
 
+        const char* close_label = "Close##UiForgeSettingsClose";
+        const ImVec2 close_text_size = ImGui::CalcTextSize(close_label);
+        float close_button_width = (close_text_size.x + style.FramePadding.x * 2.0f);
+        if (close_button_width < 80.0f) close_button_width = 80.0f;
+
+        const char* eject_label = "Eject";
+        const ImVec2 eject_text_size = ImGui::CalcTextSize(eject_label);
+        float eject_button_width = (eject_text_size.x + style.FramePadding.x * 2.0f);
+        if (eject_button_width < 80.0f) eject_button_width = 80.0f;
+ 
+        const ImVec2 content_max = ImGui::GetWindowContentRegionMax();
+        float buttons_x = content_max.x - (close_button_width + style.ItemSpacing.x + eject_button_width);
+        float eject_y = content_max.y - ImGui::GetFrameHeight();
+        if (buttons_x < style.WindowPadding.x) buttons_x = style.WindowPadding.x;
+        if (eject_y < style.WindowPadding.y) eject_y = style.WindowPadding.y;
+ 
+        ImGui::SetCursorPos(ImVec2(buttons_x, eject_y));
+        if (ImGui::Button(close_label, ImVec2(close_button_width, 0.0f)))
         {
-            const char* exit_label = "Exit";
-            ImVec2 text_size = ImGui::CalcTextSize(exit_label);
-            float button_width = (text_size.x + style.FramePadding.x * 2.0f);
-            if (button_width < 80.0f) button_width = 80.0f;
-
-            ImVec2 content_max = ImGui::GetWindowContentRegionMax();
-            float x = content_max.x - button_width;
-            float y = content_max.y - ImGui::GetFrameHeight();
-            if (x < style.WindowPadding.x) x = style.WindowPadding.x;
-            if (y < style.WindowPadding.y) y = style.WindowPadding.y;
-
-            ImGui::SetCursorPos(ImVec2(x, y));
-            if (ImGui::Button(exit_label, ImVec2(button_width, 0.0f)))
-            {
-                needs_cleanup = true;
-            }
+            show_settings = false;
+        }
+        ImGui::SameLine(0.0f, style.ItemSpacing.x);
+        if (ImGui::Button(eject_label, ImVec2(eject_button_width, 0.0f)))
+        {
+            needs_cleanup = true;
         }
     }
     ImGui::End();
