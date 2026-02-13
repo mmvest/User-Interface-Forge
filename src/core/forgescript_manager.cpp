@@ -102,6 +102,28 @@ void ForgeScript::RunSettingsCallback()
     }  
 }
 
+void ForgeScript::RunDisableScriptCallback()
+{
+    if(!disable_script_callback)
+    {
+        return;
+    }
+
+    try
+    {
+        auto result = disable_script_callback();
+        if(!result.valid())
+        {
+            sol::error err = result;
+            PLOG_ERROR << "Script " << file_name << " disable callback failed with error: " << err.what();
+        }
+    }
+    catch(const std::exception& err)
+    {
+        PLOG_ERROR << "Script " << file_name << " disable callback threw exception: " << err.what();
+    }
+}
+
 void ForgeScript::Enable()
 {
     enabled = true;
@@ -109,7 +131,15 @@ void ForgeScript::Enable()
 
 void ForgeScript::Disable()
 {
+    // Added this check as a "just in case" -- wouldn't want to accidentally run disable script callbacks
+    // when the script is already disabled!
+    if(!enabled)
+    {
+        return;
+    }
+
     enabled = false;
+    RunDisableScriptCallback();
 }
 
 bool ForgeScript::IsEnabled() const
@@ -140,7 +170,8 @@ ForgeScript::~ForgeScript(){}
 
 #define FIND_SCRIPT_BY_NAME(name) [&name](const std::unique_ptr<ForgeScript>& script){ return script->GetFileName() == name;}
 
-ForgeScriptManager::ForgeScriptManager(std::string scripts_path, lua_State* uif_lua_state):scripts_path(scripts_path), uif_lua_state(uif_lua_state)
+ForgeScriptManager::ForgeScriptManager(std::string scripts_path, lua_State* uif_lua_state)
+    : scripts_path(scripts_path), uif_lua_state(uif_lua_state), currently_executing_script(nullptr)
 {
     if(!uif_lua_state)
     {
@@ -195,18 +226,36 @@ void ForgeScriptManager::RunScripts()
     }
 }
 
-void ForgeScriptManager::RegisterScriptSettings(sol::protected_function callback)
+void ForgeScriptManager::RegisterCallback(ForgeScriptCallbackType type, sol::protected_function callback)
 {
-    // Makes sure the callback is valid and that the reference to the currently executing script isn't null
-    // although the case where the executing script is null should never happen.
-    if (callback.valid() && currently_executing_script)
+    if(!currently_executing_script)
     {
-        currently_executing_script->settings_callback = callback;
-        PLOG_DEBUG << "Registered script settings callback for " << currently_executing_script->GetFileName();
-    } 
-    else 
+        PLOG_ERROR << "Attempted to register a script callback, but there is no currently executing script.";
+        return;
+    }
+
+    if(!callback.valid())
     {
-        PLOG_ERROR << "Invalid script settings callback.";
+        PLOG_ERROR << "Invalid script callback for " << currently_executing_script->GetFileName();
+        return;
+    }
+
+    switch(type)
+    {
+        case ForgeScriptCallbackType::Settings:
+            currently_executing_script->settings_callback = callback;
+            PLOG_DEBUG << "Registered script settings callback for " << currently_executing_script->GetFileName();
+            break;
+
+        case ForgeScriptCallbackType::DisableScript:
+            currently_executing_script->disable_script_callback = callback;
+            PLOG_DEBUG << "Registered script disable callback for " << currently_executing_script->GetFileName();
+            break;
+
+        default:
+            PLOG_WARNING << "Unrecognized script callback type (" << static_cast<int>(type)
+                         << ") attempted to be registered for " << currently_executing_script->GetFileName();
+            break;
     }
 }
 

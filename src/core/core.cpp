@@ -505,9 +505,14 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
     };
 
     // ForgeScriptManager Bindings
-    uiforge_table["RegisterScriptSettings"] = [](sol::protected_function callback)
+    sol::table callback_type_table = lua.create_table();
+    callback_type_table["Settings"] = static_cast<int>(ForgeScriptCallbackType::Settings);
+    callback_type_table["DisableScript"] = static_cast<int>(ForgeScriptCallbackType::DisableScript);
+    uiforge_table["CallbackType"] = callback_type_table;
+
+    uiforge_table["RegisterCallback"] = [](int callback_type, sol::protected_function callback)
     {
-        script_manager->RegisterScriptSettings(callback); // THIS IS DANGEROUS --> better solution would be to turn script manager static.
+        script_manager->RegisterCallback(static_cast<ForgeScriptCallbackType>(callback_type), callback);
     };
 }
 

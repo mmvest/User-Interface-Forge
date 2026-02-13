@@ -1,12 +1,28 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "luajit\lua.hpp"
 #include "sol\sol.hpp"
+
+/**
+ * @brief The ForgeScriptCallbackType identifies a Lua callback that a script can register with the ForgeScriptManager.
+ *
+ *  - Settings: Used to render a script's UI settings inside the UiForge Settings panel. Executed when the script 
+ *    is selected and the "Settings" tab is drawn (ForgeScript::RunSettingsCallback()).
+ * 
+ *  - DisableScript: Used for script teardown/cleanup. Executed once when a script transitions from enabled to
+ *   disabled (ForgeScript::Disable() -> ForgeScript::RunDisableScriptCallback()).
+ */
+enum class ForgeScriptCallbackType : uint8_t
+{
+    Settings = 0,
+    DisableScript = 1,
+};
 
 struct ForgeScriptDebug
 {
@@ -64,6 +80,13 @@ class ForgeScript
         void RunSettingsCallback();
 
         /**
+         * @brief Executes the Lua Scripts registered disable callback function.
+         *
+         * @note This function is intended to be called when a script is disabled.
+         */
+        void RunDisableScriptCallback();
+
+        /**
          * @brief Enables the script, allowing it to be executed.
          */
         void Enable();
@@ -116,9 +139,10 @@ class ForgeScript
          */
         ~ForgeScript();
 
-        bool enabled;                               // Flag to indicate if the script is enabled
-        ForgeScriptDebug stats;                     // Keep track of some debug stats for each script
-        sol::protected_function settings_callback;  // Function to run to display script settings
+        bool enabled;                                       // Flag to indicate if the script is enabled
+        ForgeScriptDebug stats;                             // Keep track of some debug stats for each script
+        sol::protected_function settings_callback;          // Function to run to display script settings
+        sol::protected_function disable_script_callback;    // Function to run when script is disabled
     private:
         std::string file_name;                      // The name of the Lua file
         std::string file_contents;                  // The contents of the script
@@ -183,19 +207,14 @@ class ForgeScriptManager
         void RunScripts();
         
         /**
-         * @brief Registers a Lua function for rendering custom script settings in the UI.
+         * @brief Registers a callback function on the currently executing script.
          *
-         * This function allows the currently running lua script to register a callback 
-         * that will be invoked during the rendering of the script settings window. The 
-         * registered callback should use ImGui functions to define their settings UI.
+         * @param type Which callback slot to register.
+         * @param callback A valid Lua function to register.
          *
-         * @param callback A valid Lua function to render custom settings. 
-         *                 The function will be executed within the ImGui rendering context.
-         *
-         * @note Ensure that the Lua function passed is valid and uses ImGui commands 
-         *       to define the desired UI elements.
+         * @note Unrecognized callback types are ignored with a log warning.
          */
-        void RegisterScriptSettings(sol::protected_function callback);
+        void RegisterCallback(ForgeScriptCallbackType type, sol::protected_function callback);
 
         /**
          * @brief Retrieves a pointer to a specific Lua script by its file name.

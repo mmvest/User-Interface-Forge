@@ -204,7 +204,12 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
                     }
                 }
                 ImGui::SameLine();
-                ImGui::Checkbox((std::string("##toggle_") + script_path.filename().string()).c_str(), &current_script->enabled);
+                bool script_enabled = current_script->IsEnabled();
+                if(ImGui::Checkbox((std::string("##toggle_") + script_path.filename().string()).c_str(), &script_enabled))
+                {
+                    if(script_enabled) current_script->Enable();
+                    else current_script->Disable();
+                }
                 ImGui::SameLine();
                 ImGui::TextUnformatted(script_path.filename().string().c_str()); // Manually placing name instead of using checkbox label so that clicking the name doesn't toggle the checkbox
             }
