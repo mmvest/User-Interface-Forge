@@ -11,7 +11,7 @@
 #include <string>
 #include <unordered_set>
 
-#include "plog\Log.h"
+#include <plog/Log.h>
 
 #include "core\util.h"
 #include "core\forgescript_manager.h"

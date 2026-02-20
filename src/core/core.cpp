@@ -55,13 +55,13 @@
 #include <stdexcept>
 #include <string>
 
-#include "imgui\sol_ImGui.h"
-#include "kiero\kiero.h"
-#include "luajit\lua.hpp"
-#include "plog\Initializers\RollingFileInitializer.h"
-#include "plog\Log.h"
-#include "scl\SCL.hpp"
-#include "sol\sol.hpp"
+#include <sol_ImGui.h>
+#include <kiero.h>
+#include <lua.hpp>
+#include <plog/Initializers/RollingFileInitializer.h>
+#include <plog/Log.h>
+#include <SCL/SCL.hpp>
+#include <sol/sol.hpp>
 
 #include "core\util.h"
 #include "core\graphics_api.h"

@@ -1,9 +1,9 @@
 #include <stdexcept>
 #include <string>
 
-#include "directx\WICTextureLoader.h"
-#include "imgui\imgui_impl_dx11.h"
-#include "plog\Log.h"
+#include <WICTextureLoader.h>
+#include <backends/imgui_impl_dx11.h>
+#include <plog/Log.h>
 
 #include "core\graphics_api.h"
 

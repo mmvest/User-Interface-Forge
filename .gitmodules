@@ -1,6 +1,33 @@
-[submodule "libs/InjectTools"]
-	path = libs/InjectTools
-	url = https://github.com/mmvest/InjectTools.git
-[submodule "libs/FTXUI"]
-	path = libs/FTXUI
+[submodule "externals/DirectXTK"]
+	path = externals/DirectXTK
+	url = https://github.com/microsoft/DirectXTK.git
+[submodule "externals/FTXUI"]
+	path = externals/FTXUI
 	url = https://github.com/ArthurSonzogni/FTXUI.git
+[submodule "externals/imgui"]
+	path = externals/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "externals/InjectTools"]
+	path = externals/InjectTools
+	url = https://github.com/mmvest/InjectTools.git
+[submodule "externals/kiero"]
+	path = externals/kiero
+	url = https://github.com/Rebzzel/kiero
+[submodule "externals/LuaJIT"]
+	path = externals/LuaJIT
+	url = https://github.com/LuaJIT/LuaJIT.git
+[submodule "externals/minhook"]
+	path = externals/minhook
+	url = https://github.com/TsudaKageyu/minhook.git
+[submodule "externals/simple-config-library"]
+	path = externals/simple-config-library
+	url = https://github.com/WizardCarter/simple-config-library.git
+[submodule "externals/sol2"]
+	path = externals/sol2
+	url = https://github.com/ThePhD/sol2.git
+[submodule "externals/sol2_ImGui_Bindings"]
+	path = externals/sol2_ImGui_Bindings
+	url = https://github.com/mmvest/sol2_ImGui_Bindings.git
+[submodule "externals/plog"]
+	path = externals/plog
+	url = https://github.com/SergiusTheBest/plog.git

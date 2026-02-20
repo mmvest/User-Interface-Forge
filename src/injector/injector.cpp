@@ -41,11 +41,11 @@
 #include <type_traits>
 #include <cwctype>
 
-#include "scl\SCL.hpp"
-#include "plog\Log.h"
-#include "plog\Initializers\RollingFileInitializer.h"
-#include "plog\Formatters\TxtFormatter.h"
-#include "plog\Appenders\RollingFileAppender.h"
+#include <SCL/SCL.hpp>
+#include <plog/Log.h>
+#include <plog/Initializers/RollingFileInitializer.h>
+#include <plog/Formatters/TxtFormatter.h>
+#include <plog/Appenders/RollingFileAppender.h>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -66,7 +66,7 @@ inline void InjectLogToPlog(const wchar_t* fmt, ...)
 
     PLOG_ERROR << buf;
 }
-#include "..\..\libs\InjectTools\inject_tools.h"
+#include <inject_tools.h>
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1

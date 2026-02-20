@@ -26,22 +26,41 @@ set OBJ_DIR_INJECTOR=%BIN_DIR%\injector
 set OBJ_DIR_BINDINGS=%BIN_DIR%\bindings
 set OBJ_DIR_CORE=%BIN_DIR%\core
 set OBJ_DIR_FTXUI=%BIN_DIR%\ftxui
-set LIBS_DIR=%CWD%libs
-set FTXUI_SRC_DIR=%LIBS_DIR%\FTXUI\src\ftxui
-set FTXUI_INCLUDE_DIR=%LIBS_DIR%\FTXUI\include
+set OBJ_DIR_EXTERNALS=%BIN_DIR%\externals
+set EXTERNALS_DIR=%CWD%externals
 
-@REM Have to modify include  environment variable so all the files will link properly
-set INCLUDE=%CWD%include;%CWD%include\luajit;%INCLUDE%
+@REM External dependency roots
+set DIRECTXTK_DIR=%EXTERNALS_DIR%\DirectXTK
+set FTXUI_DIR=%EXTERNALS_DIR%\FTXUI
+set IMGUI_DIR=%EXTERNALS_DIR%\imgui
+set INJECTTOOLS_DIR=%EXTERNALS_DIR%\InjectTools
+set KIERO_DIR=%EXTERNALS_DIR%\kiero
+set LUAJIT_SRC_DIR=%EXTERNALS_DIR%\LuaJIT\src
+set MINHOOK_DIR=%EXTERNALS_DIR%\minhook
+set PLOG_INCLUDE_DIR=%EXTERNALS_DIR%\plog\include
+set SCL_INCLUDE_DIR=%EXTERNALS_DIR%\simple-config-library\include
+set SOL2_INCLUDE_DIR=%EXTERNALS_DIR%\sol2\include
+set SOL2_IMGUI_DIR=%EXTERNALS_DIR%\sol2_ImGui_Bindings
+
+set FTXUI_SRC_DIR=%FTXUI_DIR%\src\ftxui
+set FTXUI_INCLUDE_DIR=%FTXUI_DIR%\include
+set FTXUI_LIB=%OBJ_DIR_FTXUI%\FTXUI.lib
+set LUAJIT_LIB=%LUAJIT_SRC_DIR%\lua51.lib
+
+@REM Common project include root (so "core\\util.h" resolves to src\\core\\util.h).
+set PROJ_INCLUDE_DIR=%SRC_DIR%
 
 set CSTD=/std:c++17
+set RUNTIME=/MT
 
 @REM Graphics API linking options
-set LINK_D3D11=d3d11.lib d3dcompiler.lib libs\imgui_directx11_1.91.2.lib libs\kiero_directx11.lib libs\minhook_x64.lib libs\DirectXTK.lib
-set LINK_GRAPHICS=%LINK_D3D11%
+set LINK_D3D11=d3d11.lib dxgi.lib d3dcompiler.lib
+set LINK_IMGUI_WIN32=user32.lib gdi32.lib imm32.lib
+set LINK_WIC=ole32.lib windowscodecs.lib
+set LINK_GRAPHICS=%LINK_D3D11% %LINK_IMGUI_WIN32% %LINK_WIC%
 
-@REM LuaJIT linking
-set LINK_LUA=%LIBS_DIR%\lua51.lib
-set LINK_FTXUI=%LIBS_DIR%\FTXUI.lib
+@REM Injector linking
+set LINK_FTXUI="%FTXUI_LIB%"
 
 @REM sol_ImGui
 set SOL_IMGUI_DEFINES=IMGUI_NO_DOCKING
@@ -51,6 +70,63 @@ if /I "%~1"=="cleanup" goto cleanup
 
 @REM Initialize build environment
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+
+@REM Basic dependency sanity checks (externals/ should already be populated by submodules)
+if not exist "%EXTERNALS_DIR%\" (
+    echo ERROR: Missing "%EXTERNALS_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%IMGUI_DIR%\imgui.h" (
+    echo ERROR: Missing ImGui sources under "%IMGUI_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%KIERO_DIR%\kiero.cpp" (
+    echo ERROR: Missing kiero sources under "%KIERO_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%MINHOOK_DIR%\src\hook.c" (
+    echo ERROR: Missing MinHook sources under "%MINHOOK_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%DIRECTXTK_DIR%\Src\WICTextureLoader.cpp" (
+    echo ERROR: Missing DirectXTK sources under "%DIRECTXTK_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%LUAJIT_SRC_DIR%\msvcbuild.bat" (
+    echo ERROR: Missing LuaJIT build scripts under "%LUAJIT_SRC_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%PLOG_INCLUDE_DIR%\plog\Log.h" (
+    echo ERROR: Missing plog headers under "%PLOG_INCLUDE_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%SCL_INCLUDE_DIR%\SCL\SCL.hpp" (
+    echo ERROR: Missing simple-config-library headers under "%SCL_INCLUDE_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%SOL2_INCLUDE_DIR%\sol\sol.hpp" (
+    echo ERROR: Missing sol2 headers under "%SOL2_INCLUDE_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%SOL2_IMGUI_DIR%\sol_ImGui.h" (
+    echo ERROR: Missing sol2_ImGui_Bindings headers under "%SOL2_IMGUI_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
+if not exist "%INJECTTOOLS_DIR%\inject_tools.h" (
+    echo ERROR: Missing InjectTools headers under "%INJECTTOOLS_DIR%".
+    echo        Run: git submodule update --init --recursive
+    goto error
+)
 
 @REM Determine what to build
 set BUILD_ALL=false
@@ -105,14 +181,14 @@ if "%BUILD_FTXUI%"=="true" (
         goto error
     )
 
-    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\screen\\" !FTXUI_SCREEN_SOURCES!
+    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\screen\\" !FTXUI_SCREEN_SOURCES!
     if errorlevel 1 goto error
-    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\dom\\" !FTXUI_DOM_SOURCES!
+    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\dom\\" !FTXUI_DOM_SOURCES!
     if errorlevel 1 goto error
-    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%LIBS_DIR%\FTXUI\src" /Fo"%OBJ_DIR_FTXUI%\component\\" !FTXUI_COMPONENT_SOURCES!
+    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\component\\" !FTXUI_COMPONENT_SOURCES!
     if errorlevel 1 goto error
 
-    lib /nologo /OUT:"%LIBS_DIR%\FTXUI.lib" "%OBJ_DIR_FTXUI%\screen\*.obj" "%OBJ_DIR_FTXUI%\dom\*.obj" "%OBJ_DIR_FTXUI%\component\*.obj"
+    lib /nologo /OUT:"%FTXUI_LIB%" "%OBJ_DIR_FTXUI%\screen\*.obj" "%OBJ_DIR_FTXUI%\dom\*.obj" "%OBJ_DIR_FTXUI%\component\*.obj"
     if errorlevel 1 goto error
 )
 
@@ -121,10 +197,16 @@ if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
 if "%BUILD_INJECTOR%"=="true" (
     echo Building Injector
     if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
-    cl /nologo /EHsc /MT /DUNICODE /D_UNICODE /I"%FTXUI_INCLUDE_DIR%" /Fe:%CWD%UiForge.exe %CSTD% %SRC_DIR%\injector\injector.cpp /link %LINK_FTXUI%
+    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE %CSTD% ^
+        /I"%PROJ_INCLUDE_DIR%" ^
+        /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" ^
+        /I"%PLOG_INCLUDE_DIR%" /I"%SCL_INCLUDE_DIR%" /I"%INJECTTOOLS_DIR%" ^
+        /Fo"%OBJ_DIR_INJECTOR%\\" /Fe:"%CWD%UiForge.exe" ^
+        "%SRC_DIR%\injector\injector.cpp" ^
+        /link %LINK_FTXUI%
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /EHsc        : Enables standard C++ exception handling.
-    @REM /MT          : Statically links the multithreaded runtime library (matches FTXUI.lib).
+    @REM %RUNTIME%    : Runtime library setting (must match third-party objects).
     @REM /Fe          : Specifies the output file name for the executable.
     @REM %CSTD%       : Specifies the C++ standard to use.
     if errorlevel 1 goto error
@@ -133,13 +215,73 @@ if "%BUILD_INJECTOR%"=="true" (
 @REM Build Core
 if "%BUILD_ALL%"=="true" set BUILD_CORE=true
 if "%BUILD_CORE%"=="true" (
+    echo Building Third-Party Dependencies
+
+    if not exist "%OBJ_DIR_EXTERNALS%\imgui" mkdir "%OBJ_DIR_EXTERNALS%\imgui"
+    if not exist "%OBJ_DIR_EXTERNALS%\kiero" mkdir "%OBJ_DIR_EXTERNALS%\kiero"
+    if not exist "%OBJ_DIR_EXTERNALS%\minhook" mkdir "%OBJ_DIR_EXTERNALS%\minhook"
+    if not exist "%OBJ_DIR_EXTERNALS%\directxtk" mkdir "%OBJ_DIR_EXTERNALS%\directxtk"
+
+    @REM ImGui
+    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO ^
+        /I"%IMGUI_DIR%" /I"%IMGUI_DIR%\misc\cpp" ^
+        /Fo"%OBJ_DIR_EXTERNALS%\imgui\\" ^
+        "%IMGUI_DIR%\imgui.cpp" "%IMGUI_DIR%\imgui_draw.cpp" "%IMGUI_DIR%\imgui_tables.cpp" "%IMGUI_DIR%\imgui_widgets.cpp" ^
+        "%IMGUI_DIR%\misc\cpp\imgui_stdlib.cpp" ^
+        "%IMGUI_DIR%\backends\imgui_impl_win32.cpp" "%IMGUI_DIR%\backends\imgui_impl_dx11.cpp"
+    if errorlevel 1 goto error
+
+    @REM MinHook
+    cl /nologo /c %RUNTIME% /Zi ^
+        /I"%MINHOOK_DIR%\include" /I"%MINHOOK_DIR%\src" /I"%MINHOOK_DIR%\src\hde" ^
+        /Fo"%OBJ_DIR_EXTERNALS%\minhook\\" ^
+        "%MINHOOK_DIR%\src\buffer.c" "%MINHOOK_DIR%\src\hook.c" "%MINHOOK_DIR%\src\trampoline.c" "%MINHOOK_DIR%\src\hde\hde64.c"
+    if errorlevel 1 goto error
+
+    @REM kiero
+    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /DUIFORGE_KIERO_INCLUDE_D3D11=1 /DUIFORGE_KIERO_USE_MINHOOK=1 ^
+        /FI"%SRC_DIR%\compat\kiero_compat.h" ^
+        /I"%KIERO_DIR%" /I"%EXTERNALS_DIR%" ^
+        /Fo"%OBJ_DIR_EXTERNALS%\kiero\\" ^
+        "%KIERO_DIR%\kiero.cpp"
+    if errorlevel 1 goto error
+
+    @REM DirectXTK
+    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% ^
+        /I"%DIRECTXTK_DIR%\Inc" /I"%DIRECTXTK_DIR%\Src" ^
+        /Fo"%OBJ_DIR_EXTERNALS%\directxtk\\" ^
+        "%DIRECTXTK_DIR%\Src\WICTextureLoader.cpp"
+    if errorlevel 1 goto error
+
+    @REM LuaJIT
+    echo Building LuaJIT
+    pushd "%LUAJIT_SRC_DIR%"
+    call msvcbuild.bat static
+    if errorlevel 1 (popd & goto error)
+    popd
+    if not exist "%LUAJIT_LIB%" (
+        echo ERROR: LuaJIT build succeeded, but "%LUAJIT_LIB%" was not found.
+        goto error
+    )
+
     echo Building Core
     if not exist %OBJ_DIR_CORE% mkdir %OBJ_DIR_CORE%
-    cl /nologo /bigobj /EHsc /Bt+ /MP /MT /Zi /LD /D %SOL_IMGUI_DEFINES% /Fe:%BIN_DIR%\uiforge_core.dll %CSTD% %SRC_DIR%\core\*.cpp /link %LINK_GRAPHICS% %LINK_LUA%
+    cl /nologo /bigobj /EHsc /Bt+ /MP %RUNTIME% /Zi /LD /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %CSTD% ^
+        /I"%PROJ_INCLUDE_DIR%" ^
+        /I"%IMGUI_DIR%" /I"%IMGUI_DIR%\misc\cpp" ^
+        /I"%KIERO_DIR%" /I"%EXTERNALS_DIR%" ^
+        /I"%PLOG_INCLUDE_DIR%" /I"%SCL_INCLUDE_DIR%" ^
+        /I"%SOL2_INCLUDE_DIR%" /I"%SOL2_INCLUDE_DIR%\sol" /I"%SOL2_IMGUI_DIR%" ^
+        /I"%LUAJIT_SRC_DIR%" ^
+        /I"%DIRECTXTK_DIR%\Inc" /I"%DIRECTXTK_DIR%\Src" ^
+        /Fo"%OBJ_DIR_CORE%\\" /Fe:"%BIN_DIR%\uiforge_core.dll" ^
+        %SRC_DIR%\core\*.cpp ^
+        "%OBJ_DIR_EXTERNALS%\imgui\*.obj" "%OBJ_DIR_EXTERNALS%\minhook\*.obj" "%OBJ_DIR_EXTERNALS%\kiero\*.obj" "%OBJ_DIR_EXTERNALS%\directxtk\*.obj" ^
+        /link %LINK_GRAPHICS% "%LUAJIT_LIB%"
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /bigobj      : Enables support for larger object files.
     @REM /EHsc        : Enables standard C++ exception handling.
-    @REM /MT          : Statically links the multithreaded runtime library.
+    @REM %RUNTIME%    : Runtime library setting.
     @REM /Zi          : Generates complete debugging information.
     @REM /LD          : Builds a dynamic-link library (DLL).
     @REM /D           : Defines macro(s) for preprocessing (e.g., IMGUI_NO_DOCKING).
@@ -178,7 +320,7 @@ set BUILD_FAILED=true
 
 :cleanup
 echo Cleaning up
-@REM Remove root-level intermediate artifacts from this build.
+@REM Remove root-level artifacts from this build.
 pushd "%CWD%" >nul 2>&1
 if not errorlevel 1 (
     del /F /Q "*.obj" "*.pdb" "*.ilk" >nul 2>&1
@@ -187,8 +329,8 @@ if not errorlevel 1 (
 
 @REM Remove ALL subdirectories under bin.
 if exist "%BIN_DIR%" (
-    for /d %%D in ("%BIN_DIR%\*") do rd /S /Q "%%~fD" >nul 2>&1
-)
+    for /d %%D in ("%BIN_DIR%\*") do rd /S /Q "%%~fD"
+) >nul 2>&1
 
 if "%BUILD_FAILED%"=="true" (
     exit /b 1

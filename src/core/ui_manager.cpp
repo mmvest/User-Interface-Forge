@@ -6,8 +6,8 @@
 #include <string>
 #include <unordered_map>
 
-#include "imgui\imgui_impl_win32.h"
-#include "plog\Log.h"
+#include <backends/imgui_impl_win32.h>
+#include <plog/Log.h>
 
 #include "core\ui_manager.h"
 #include "core\graphics_api.h"
@@ -166,7 +166,7 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
 
         ImVec4 icon_tint(1, 1, 1, (is_hovered || is_dragging_icon) ? 1.0f : 0.2f);
         ImGui::SetCursorPos(cursor_pos);
-        ImGui::Image(settings_icon, settings_icon_size, ImVec2(0, 0), ImVec2(1, 1), icon_tint);
+        ImGui::ImageWithBg(ImTextureRef(settings_icon), settings_icon_size, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), icon_tint);
     }
     ImGui::End();
 }
@@ -188,14 +188,14 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
         ImVec2 settings_child_window_size(parent_window_size.x * 0.7f - style.ItemSpacing.x * 0.5f, child_height);
         
         ImGui::BeginGroup();
-        if(ImGui::BeginChild("ForgeScript List", forgescript_list_window_size, ImGuiChildFlags_Border))
+        if(ImGui::BeginChild("ForgeScript List", forgescript_list_window_size, ImGuiChildFlags_Borders))
         {
             for (unsigned idx = 0; idx < script_manager.GetScriptCount(); idx++)
             {
                 ForgeScript* current_script = script_manager.GetScript(idx);
                 std::filesystem::path script_path(current_script->GetFileName());
                 bool is_current_script_selected = (selected_script == current_script);
-                if(ImGui::Selectable((std::string("##selectable_") + script_path.filename().string()).c_str(), is_current_script_selected, ImGuiSelectableFlags_AllowItemOverlap, ImVec2(0, line_height)))
+                if(ImGui::Selectable((std::string("##selectable_") + script_path.filename().string()).c_str(), is_current_script_selected, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, line_height)))
                 {
                     // If we click on a selected script and it is already selected, then deselect
                     if (is_current_script_selected)
@@ -254,7 +254,7 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
         ImGui::SameLine();
 
         ImGui::BeginGroup();
-        if(ImGui::BeginChild("ForgeScript Settings", settings_child_window_size, ImGuiChildFlags_Border))
+        if(ImGui::BeginChild("ForgeScript Settings", settings_child_window_size, ImGuiChildFlags_Borders))
         {
             if(ImGui::BeginTabBar("ForgeScript Settings Tabs"))
             {
@@ -526,10 +526,10 @@ static bool HandleKeyboardInput(UINT msg, WPARAM wParam, LPARAM lParam)
     // Keep ImGui's modifier state (Ctrl/Shift/Alt/Windows Key) up to date
     auto update_mods = [&io]()
     {
-        io.AddKeyEvent(ImGuiKey_ModCtrl, (GetKeyState(VK_CONTROL) & 0x8000) != 0);
-        io.AddKeyEvent(ImGuiKey_ModShift, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
-        io.AddKeyEvent(ImGuiKey_ModAlt, (GetKeyState(VK_MENU) & 0x8000) != 0);
-        io.AddKeyEvent(ImGuiKey_ModSuper, ((GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) != 0);
+        io.AddKeyEvent(ImGuiMod_Ctrl, (GetKeyState(VK_CONTROL) & 0x8000) != 0);
+        io.AddKeyEvent(ImGuiMod_Shift, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+        io.AddKeyEvent(ImGuiMod_Alt, (GetKeyState(VK_MENU) & 0x8000) != 0);
+        io.AddKeyEvent(ImGuiMod_Super, ((GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) != 0);
     };
 
     auto fixup_vk = [](WPARAM vk, LPARAM lp) -> WPARAM
