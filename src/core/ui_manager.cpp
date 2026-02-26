@@ -1,5 +1,7 @@
 #include <cstddef>
+#include <cstring>
 #include <atomic>
+#include <vector>
 #include <filesystem>
 #include <mutex>
 #include <stdexcept>
@@ -174,9 +176,93 @@ void UiManager::RenderSettingsIcon(void* settings_icon)
 void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
 {
     static ForgeScript* selected_script;    // Static so the selected script stays selected
+    static bool open_save_profile_popup = false;
+    static char profile_name_buffer[64] = "";
 
-    if (ImGui::Begin("UiForge Settings"))
+    if (ImGui::Begin("UiForge Settings", nullptr, ImGuiWindowFlags_MenuBar))
     {
+        if (ImGui::BeginMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::BeginMenu("Select Profile"))
+                {
+                    const std::vector<std::string> profiles = script_manager.ListProfiles();
+                    if (profiles.empty())
+                    {
+                        ImGui::MenuItem("(no saved profiles)", nullptr, false, false);
+                    }
+                    for (const std::string& profile : profiles)
+                    {
+                        const bool is_current = (profile == script_manager.GetCurrentProfileName());
+                        if (ImGui::MenuItem(profile.c_str(), nullptr, is_current))
+                        {
+                            script_manager.ApplyProfile(profile);
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::MenuItem("Save Profile..."))
+                {
+                    // Prefill the name field with the current profile so re-saving it is one click.
+                    const std::string current = script_manager.GetCurrentProfileName();
+                    strncpy_s(profile_name_buffer, current.c_str(), sizeof(profile_name_buffer) - 1);
+                    open_save_profile_popup = true;
+                }
+
+                ImGui::Separator();
+
+                // Checked when the current profile is this process's preferred profile.
+                // Toggling on marks it preferred so it auto-applies on the next inject into
+                // this same executable. Toggling off clears the preference.
+                const std::string current_profile = script_manager.GetCurrentProfileName();
+                const bool is_preferred = !current_profile.empty() && current_profile == script_manager.GetPreferredProfileName();
+                if (ImGui::MenuItem("Set Profile As Preferred", nullptr, is_preferred, !current_profile.empty()))
+                {
+                    if (is_preferred)
+                    {
+                        script_manager.ClearPreferredProfile();
+                    }
+                    else
+                    {
+                        script_manager.SetPreferredProfile(current_profile);
+                    }
+                }
+
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
+
+        // The popup is opened outside the menu scope because OpenPopup inside a menu
+        // attaches the popup to the menu window, which closes immediately.
+        if (open_save_profile_popup)
+        {
+            ImGui::OpenPopup("Save Profile");
+            open_save_profile_popup = false;
+        }
+        if (ImGui::BeginPopupModal("Save Profile", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextUnformatted("Saves the enabled scripts, their settings, and window layout.");
+            ImGui::InputText("Profile Name", profile_name_buffer, sizeof(profile_name_buffer));
+
+            const bool name_is_empty = (profile_name_buffer[0] == '\0');
+            ImGui::BeginDisabled(name_is_empty);
+            if (ImGui::Button("Save##SaveProfileConfirm", ImVec2(120.0f, 0.0f)))
+            {
+                script_manager.SaveProfile(profile_name_buffer);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel##SaveProfileCancel", ImVec2(120.0f, 0.0f)))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
         ImGuiStyle& style = ImGui::GetStyle();
         float line_height = ImGui::GetTextLineHeightWithSpacing();
         float checkbox_height = ImGui::GetFrameHeight();

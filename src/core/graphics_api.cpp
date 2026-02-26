@@ -19,6 +19,7 @@ void    (*IGraphicsApi::Render)()                                               
 void    (*IGraphicsApi::UpdateRenderTarget)(void*)                                                  = nullptr;
 void    (*IGraphicsApi::OnGraphicsApiInvoke)(void*)                                                 = nullptr;
 void*   (*IGraphicsApi::CreateTextureFromFile)(const std::wstring& file_path)                       = nullptr;
+void*   (*IGraphicsApi::CreateTextureFromMemory)(const void* pixels, int width, int height)         = nullptr;
 void    (*IGraphicsApi::ShutdownImGuiImpl)()                                                        = nullptr;
 void*   IGraphicsApi::OriginalFunction                                                              = nullptr;
 void*   IGraphicsApi::HookedFunction                                                                = nullptr;
@@ -42,6 +43,7 @@ D3D11GraphicsApi::D3D11GraphicsApi(void(*OnGraphicsApiInvoke)(void*) = nullptr)
     IGraphicsApi::Render                    = D3D11GraphicsApi::Render;
     IGraphicsApi::HookedFunction            = D3D11GraphicsApi::HookedPresent;
     IGraphicsApi::CreateTextureFromFile     = D3D11GraphicsApi::CreateTextureFromFile;
+    IGraphicsApi::CreateTextureFromMemory   = D3D11GraphicsApi::CreateTextureFromMemory;
     IGraphicsApi::ShutdownImGuiImpl         = D3D11GraphicsApi::ShutdownImGuiImpl;
 }
 
@@ -204,6 +206,56 @@ void* D3D11GraphicsApi::CreateTextureFromFile(const std::wstring& file_path)
         PLOG_DEBUG << "Texture created: " << out_texture_view;
     }
 
+    return out_texture_view;
+}
+
+void* D3D11GraphicsApi::CreateTextureFromMemory(const void* pixels, int width, int height)
+{
+    if (!d3d11_device)
+    {
+        PLOG_WARNING << "CreateTextureFromMemory called without an initialized device.";
+        return nullptr;
+    }
+
+    if (!pixels || width <= 0 || height <= 0)
+    {
+        PLOG_WARNING << "CreateTextureFromMemory called with invalid arguments (pixels=" << pixels
+                     << ", width=" << width << ", height=" << height << ").";
+        return nullptr;
+    }
+
+    D3D11_TEXTURE2D_DESC texture_description = {};
+    texture_description.Width               = width;
+    texture_description.Height              = height;
+    texture_description.MipLevels           = 1;
+    texture_description.ArraySize           = 1;
+    texture_description.Format              = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texture_description.SampleDesc.Count    = 1;
+    texture_description.Usage               = D3D11_USAGE_IMMUTABLE;
+    texture_description.BindFlags           = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initial_data = {};
+    initial_data.pSysMem     = pixels;
+    initial_data.SysMemPitch = width * 4;
+
+    ID3D11Texture2D* texture = nullptr;
+    HRESULT result = d3d11_device->CreateTexture2D(&texture_description, &initial_data, &texture);
+    if (FAILED(result))
+    {
+        PLOG_ERROR << "Failed to create texture from memory. Returned HRESULT: " << result;
+        return nullptr;
+    }
+
+    ID3D11ShaderResourceView* out_texture_view = nullptr;
+    result = d3d11_device->CreateShaderResourceView(texture, nullptr, &out_texture_view);
+    texture->Release();     // The shader resource view keeps its own reference.
+    if (FAILED(result))
+    {
+        PLOG_ERROR << "Failed to create shader resource view for memory texture. Returned HRESULT: " << result;
+        return nullptr;
+    }
+
+    PLOG_DEBUG << "Texture created from memory (" << width << "x" << height << "): " << out_texture_view;
     return out_texture_view;
 }
 

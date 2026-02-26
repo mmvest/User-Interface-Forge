@@ -20,11 +20,24 @@
  * 
  *  - DisableScript: Used for script teardown/cleanup. Executed once when a script transitions from enabled to
  *   disabled (ForgeScript::Disable() -> ForgeScript::RunDisableScriptCallback()).
+ *
+ *  - Save: Persistent state serialization. The callback takes no arguments and returns a plain-data table
+ *    (or nil to skip). The table is captured into the profile being saved
+ *    (ForgeScriptManager::SaveProfile(), triggered from the File > Save Profile menu).
+ *
+ *  - Load: Persistent state deserialization. The callback receives the table previously produced by the
+ *    Save callback when a profile is applied (ForgeScriptManager::ApplyProfile()).
+ *
+ *  - OnEject: Last-chance cleanup when the core is ejecting/unloading. Executed for every script (enabled
+ *    or not) right before the script manager is destroyed (ForgeScriptManager::RunOnEjectCallbacks()).
  */
 enum class ForgeScriptCallbackType : uint8_t
 {
     Settings = 0,
     DisableScript = 1,
+    Save = 2,
+    Load = 3,
+    OnEject = 4,
 };
 
 struct ForgeScriptDebug
@@ -98,6 +111,15 @@ class ForgeScript
          * @note This function is intended to be called when a script is disabled.
          */
         void RunDisableScriptCallback();
+
+        /**
+         * @brief Executes the Lua Scripts registered on-eject callback function.
+         *
+         * Errors are logged and swallowed so one script cannot interrupt the eject sequence.
+         *
+         * @note This function is intended to be called once, right before the core unloads.
+         */
+        void RunOnEjectCallback();
 
         /**
          * @brief Enables the script, allowing it to be executed.
@@ -185,6 +207,9 @@ class ForgeScript
         ForgeScriptDebug stats;                             // Keep track of some debug stats for each script
         sol::protected_function settings_callback;          // Function to run to display script settings
         sol::protected_function disable_script_callback;    // Function to run when script is disabled
+        sol::protected_function save_callback;              // Function to run to get persistent state for save
+        sol::protected_function load_callback;              // Function to run to restore persistent state on load
+        sol::protected_function on_eject_callback;          // Function to run when the core is ejecting/unloading
     private:
         /**
          * @brief Reads the script file from disk into memory.
@@ -344,6 +369,98 @@ class ForgeScriptManager
         unsigned GetScriptCount();
 
         /**
+         * @brief Sets the directory where profile files are written and read.
+         *
+         * @param directory_path Full path to the profiles directory. Created on demand when saving.
+         */
+        void SetProfilesDirectory(const std::string& directory_path);
+
+        /**
+         * @brief Sets the modules directory used to detect which require()d modules are user modules.
+         *
+         * When set, script reloads purge matching entries from package.loaded so edited modules
+         * are re-read from disk (see PurgeUserModuleCache()).
+         *
+         * @param directory_path Full path to the Lua modules directory.
+         */
+        void SetModulesDirectory(const std::string& directory_path);
+
+        /**
+         * @brief Saves the current setup as a named profile.
+         *
+         * A profile captures the set of enabled scripts, the per-script state returned by each
+         * enabled script's Save callback, and the current ImGui window settings (positions,
+         * sizes, collapsed state). The profile is serialized with serpent and written atomically
+         * (temp file + rename) to "<profiles dir>\\<name>.profile.lua". Errors are logged per
+         * script and do not stop the rest of the profile from saving.
+         *
+         * @param profile_name The profile name. Also used as the file stem, so it must not
+         * contain path separators or other characters invalid in file names.
+         */
+        void SaveProfile(const std::string& profile_name);
+
+        /**
+         * @brief Applies a named profile.
+         *
+         * Enables every script listed in the profile, disables every script that is not listed,
+         * and queues the profile's per-script states and window settings to be delivered at the
+         * end of the next RunScripts() pass. The one-pass delay lets newly enabled scripts run
+         * once so they can register their Load callbacks and create their windows before state
+         * and window positions are applied.
+         *
+         * The profile file is parsed inside an empty sandbox environment (profiles are plain
+         * data and must not be able to touch globals).
+         *
+         * @param profile_name The profile name to apply.
+         */
+        void ApplyProfile(const std::string& profile_name);
+
+        /**
+         * @brief Lists the names of all saved profiles in the profiles directory.
+         */
+        std::vector<std::string> ListProfiles() const;
+
+        /**
+         * @brief Returns the name of the most recently saved or applied profile, or "" if none.
+         */
+        std::string GetCurrentProfileName() const;
+
+        /**
+         * @brief Returns the preferred profile name for the current process, or "" if none is set.
+         *
+         * Preferred profiles are stored per process executable name in
+         * "<profiles dir>\\preferred_profiles.lua" so a profile made for one game cannot be
+         * auto-applied inside a different process.
+         */
+        std::string GetPreferredProfileName() const;
+
+        /**
+         * @brief Sets the given profile as the preferred profile for the current process.
+         */
+        void SetPreferredProfile(const std::string& profile_name);
+
+        /**
+         * @brief Clears the preferred profile for the current process.
+         */
+        void ClearPreferredProfile();
+
+        /**
+         * @brief Applies the preferred profile for the current process, if one is set.
+         *
+         * Intended to be called once during core initialization, after the script manager and
+         * Lua state are fully set up. Does nothing when no preferred profile is configured or
+         * the profile file no longer exists.
+         */
+        void ApplyPreferredProfile();
+
+        /**
+         * @brief Runs the OnEject callback of every script that registered one.
+         *
+         * Intended to be called once during core cleanup, before the script manager is destroyed.
+         */
+        void RunOnEjectCallbacks();
+
+        /**
          * @brief Scans the scripts directory for new scripts and adds any that aren't already loaded.
          */
         void RefreshScripts();
@@ -375,8 +492,76 @@ class ForgeScriptManager
          */
         void ProcessPendingReloads();
 
+        /**
+         * @brief Builds the file path for a named profile, "<profiles dir>\\<name>.profile.lua".
+         */
+        std::string GetProfileFilePath(const std::string& profile_name) const;
+
+        /**
+         * @brief Builds the path of the per-process preferred profile map file.
+         */
+        std::string GetPreferredProfilesFilePath() const;
+
+        /**
+         * @brief Returns the current process executable name, lowercased (e.g. "pcsx2-qt.exe").
+         */
+        static std::string GetCurrentProcessName();
+
+        /**
+         * @brief Loads and executes a plain-data Lua file inside an empty sandbox environment.
+         *
+         * @return The table the file returned, or sol::lua_nil on any failure (logged).
+         */
+        sol::object LoadDataFile(const std::string& file_path) const;
+
+        /**
+         * @brief Serializes a table with serpent and writes "return <data>" atomically
+         * (temp file + rename) to the given path. Creates parent directories on demand.
+         *
+         * @return true on success. Failures are logged.
+         */
+        bool WriteDataFileAtomic(const std::string& file_path, sol::object data) const;
+
+        /**
+         * @brief Delivers a pending profile apply queued by ApplyProfile().
+         *
+         * Runs at the end of RunScripts(), after the profile's scripts have executed once and
+         * registered their callbacks. Passes each saved state table to the owning script's Load
+         * callback and restores window positions from the profile's window settings.
+         */
+        void ApplyPendingProfileState();
+
+        /**
+         * @brief Restores window positions, sizes, and collapsed state from an ImGui ini blob.
+         *
+         * The blob is what ImGui::SaveIniSettingsToMemory() produced when the profile was saved.
+         * It is handed back to ImGui so windows created later pick it up, and each [Window]
+         * entry is also applied to existing windows by name via ImGui::SetWindowPos() and
+         * friends, since ImGui only reads ini settings on window creation.
+         */
+        static void ApplyWindowSettings(const std::string& ini_blob);
+
+        /**
+         * @brief Removes user modules from package.loaded so the next require() re-reads them from disk.
+         *
+         * Only module names that resolve to a .lua file under the modules directory are purged;
+         * built-in libraries and embedded modules are untouched. Called before pending script
+         * reloads are applied so a hot reload picks up module edits too.
+         *
+         * @note Scripts that are not being reloaded keep whatever references they already hold to
+         * the old module tables until they are reloaded themselves.
+         */
+        void PurgeUserModuleCache();
+
         lua_State* uif_lua_state;                           // The lua state for the ForgeScripts to use when running
         std::string scripts_path;                           // The full path to the lua scripts that will be made into ForgeScript objects
+        std::string profiles_path;                          // The full path to the directory holding profile files
+        std::string current_profile_name;                   // Name of the most recently saved/applied profile ("" if none)
+
+        bool has_pending_profile_apply = false;             // True when ApplyProfile queued state for the end of the next RunScripts pass
+        sol::object pending_profile_scripts;                // Profile "scripts" table awaiting delivery to Load callbacks
+        std::string pending_window_settings;                // Profile ImGui ini blob awaiting application
+        std::string modules_path;                           // The full path to the Lua modules directory (for cache purging on reload)
         std::vector<std::unique_ptr<ForgeScript>> scripts;  // Vector to hold all ForgeScripts
         ForgeScript* currently_executing_script;            // Pointer to the currently executing ForgeScript
 

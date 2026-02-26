@@ -75,6 +75,16 @@ class IGraphicsApi
         static void* (*CreateTextureFromFile)(const std::wstring& file_path);
 
         /**
+         * @brief Creates a graphics API compatible texture from raw 32-bit RGBA pixels.
+         *
+         * @param pixels Pointer to width * height * 4 bytes of RGBA pixel data (row-major, no padding).
+         * @param width Texture width in pixels.
+         * @param height Texture height in pixels.
+         * @return Pointer to the created texture resource, or nullptr on failure.
+         */
+        static void* (*CreateTextureFromMemory)(const void* pixels, int width, int height);
+
+        /**
          * @brief Shuts down the ImGui implementation for the graphics API.
          */
         static void (*ShutdownImGuiImpl)();
@@ -161,8 +171,18 @@ class D3D11GraphicsApi : public IGraphicsApi
         static void* CreateTextureFromFile(const std::wstring& file_path);
 
         /**
+         * @brief Creates a texture from raw 32-bit RGBA pixels in the DirectX 11 context.
+         *
+         * @param pixels Pointer to width * height * 4 bytes of RGBA pixel data (row-major, no padding).
+         * @param width Texture width in pixels.
+         * @param height Texture height in pixels.
+         * @return Pointer to the created shader resource view, or nullptr on failure.
+         */
+        static void* CreateTextureFromMemory(const void* pixels, int width, int height);
+
+        /**
          * @brief Shuts down the ImGui implementation for DirectX 11.
-         */        
+         */
         static void ShutdownImGuiImpl();
 
         /**

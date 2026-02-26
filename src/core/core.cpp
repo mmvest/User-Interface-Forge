@@ -66,6 +66,7 @@
 #include "core\util.h"
 #include "core\graphics_api.h"
 #include "core\forgescript_manager.h"
+#include "core\serpent.h"
 #include "core\ui_manager.h"
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -122,6 +123,7 @@ std::string uiforge_root_dir;
 std::string uiforge_scripts_dir;
 std::string uiforge_modules_dir;
 std::string uiforge_resources_dir;
+std::string uiforge_profiles_dir;
 
 // For cleanup
 std::atomic<HMODULE> core_module_handle(NULL);  // I actually don't think this needs to be atomic?
@@ -370,6 +372,8 @@ void LoadConfiguration()
 
     uiforge_resources_dir = std::string(uiforge_scripts_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "FORGE_RESOURCES_DIR"));
 
+    uiforge_profiles_dir = std::string(uiforge_scripts_dir + "\\profiles");
+
     reload_on_save = GET_CONFIG_VAL(config_parent_dir, unsigned int, "RELOAD_ON_SAVE");
     reload_on_save_poll_ms = GET_CONFIG_VAL(config_parent_dir, unsigned int, "RELOAD_ON_SAVE_POLL_MS");
     if (reload_on_save_poll_ms < 0) reload_on_save_poll_ms = 2500;
@@ -398,6 +402,7 @@ void LogConfigValues()
     PLOG_DEBUG << "UiForge scripts directory: " << uiforge_scripts_dir;
     PLOG_DEBUG << "UiForge modules directory: " << uiforge_modules_dir;
     PLOG_DEBUG << "UiForge resources directory: " << uiforge_resources_dir;
+    PLOG_DEBUG << "UiForge profiles directory: " << uiforge_profiles_dir;
     PLOG_DEBUG << "Reload on save: " << reload_on_save;
     PLOG_DEBUG << "Reload on save poll ms: " << reload_on_save_poll_ms;
     PLOG_DEBUG << "Settings icon file: " << settings_icon_file;
@@ -432,16 +437,25 @@ void InitializeLua()
     script_manager = new ForgeScriptManager(uiforge_scripts_dir, uif_lua_state);
     PLOG_DEBUG << "ForgeScriptManager created";
     script_manager->SetReloadOnSave(reload_on_save != 0, reload_on_save_poll_ms);
+    script_manager->SetProfilesDirectory(uiforge_profiles_dir);
+    script_manager->SetModulesDirectory(uiforge_modules_dir);
 
     // Need the sol::state_view to initialize the sol bindings
     sol::state_view uif_sol_state_view(uif_lua_state);
-    
+
+    // Register the embedded serpent serializer so both the core (save/load) and scripts
+    // (require("serpent")) can use it.
+    uif_sol_state_view.require_script(UiForgeSerpent::serpent_module_name, UiForgeSerpent::serpent_lua_source);
+    PLOG_DEBUG << "serpent serializer registered";
+
     // Initialize UiForge specific Lua bindings
     InitializeUiForgeLuaBindings(uif_sol_state_view);
 
     // Initialize ImGui Lua bindings
     sol_ImGui::Init(uif_sol_state_view);
 
+    // Auto-apply the preferred profile for this process, if one is configured.
+    script_manager->ApplyPreferredProfile();
 }
 
 
@@ -507,6 +521,29 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
         return IGraphicsApi::CreateTextureFromFile(texture_path.wstring());
     };
 
+    // Creates a texture from raw 32-bit RGBA pixel bytes (row-major, no row padding).
+    // Accepts the pixels as a Lua string so FFI buffers can be passed via ffi.string(buf, len).
+    // Alpha is standard 0-255. Returns a texture handle usable with ImGui.Image, or nil on failure.
+    // Release with UiForge.ReleaseTexture when no longer needed.
+    uiforge_table["CreateTextureFromMemory"] = [](const std::string& rgba_pixels, int width, int height) -> void*
+    {
+        if (!IGraphicsApi::CreateTextureFromMemory)
+        {
+            return nullptr;
+        }
+
+        if (width <= 0 || height <= 0
+            || rgba_pixels.size() != static_cast<size_t>(width) * static_cast<size_t>(height) * 4)
+        {
+            PLOG_WARNING << "CreateTextureFromMemory: pixel buffer size " << rgba_pixels.size()
+                         << " does not match " << width << "x" << height << " RGBA (expected "
+                         << static_cast<size_t>(width) * static_cast<size_t>(height) * 4 << " bytes).";
+            return nullptr;
+        }
+
+        return IGraphicsApi::CreateTextureFromMemory(rgba_pixels.data(), width, height);
+    };
+
     uiforge_table["ReleaseTexture"] = [](void* texture)
     {
         if (!texture)
@@ -520,6 +557,9 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
     sol::table callback_type_table = lua.create_table();
     callback_type_table["Settings"] = static_cast<int>(ForgeScriptCallbackType::Settings);
     callback_type_table["DisableScript"] = static_cast<int>(ForgeScriptCallbackType::DisableScript);
+    callback_type_table["Save"] = static_cast<int>(ForgeScriptCallbackType::Save);
+    callback_type_table["Load"] = static_cast<int>(ForgeScriptCallbackType::Load);
+    callback_type_table["OnEject"] = static_cast<int>(ForgeScriptCallbackType::OnEject);
     uiforge_table["CallbackType"] = callback_type_table;
 
     uiforge_table["RegisterCallback"] = [](int callback_type, sol::protected_function callback)
@@ -545,6 +585,8 @@ void InitializeUiForgeLuaGlobalVariables(sol::table uiforge_table)
     PLOG_DEBUG << "[+] modules_path: " << uiforge_table["modules_path"].get<std::string>();
     uiforge_table["resources_path"] = uiforge_resources_dir;
     PLOG_DEBUG << "[+] resources_path: " << uiforge_table["resources_path"].get<std::string>();
+    uiforge_table["profiles_path"] = uiforge_profiles_dir;
+    PLOG_DEBUG << "[+] profiles_path: " << uiforge_table["profiles_path"].get<std::string>();
 }
 
 /**
@@ -583,6 +625,10 @@ void CleanupUiForge()
         
         if(script_manager)
         {
+            // Give scripts a last chance to clean up while the Lua state is still alive.
+            PLOG_INFO << "Running on-eject callbacks...";
+            script_manager->RunOnEjectCallbacks();
+
             PLOG_INFO << "Cleaning up script manager...";
             delete script_manager;
             script_manager = nullptr;

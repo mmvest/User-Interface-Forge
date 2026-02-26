@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -11,6 +13,9 @@
 #include <string>
 #include <unordered_set>
 
+#include <windows.h>
+
+#include <imgui.h>
 #include <plog/Log.h>
 
 #include "core\util.h"
@@ -257,6 +262,9 @@ void ForgeScript::Reload(lua_State* curr_lua_state)
     // Clear callbacks.
     settings_callback = sol::protected_function();
     disable_script_callback = sol::protected_function();
+    save_callback = sol::protected_function();
+    load_callback = sol::protected_function();
+    on_eject_callback = sol::protected_function();
 
     ResetLuaEnvironment(curr_lua_state);
 
@@ -330,6 +338,28 @@ void ForgeScript::RunDisableScriptCallback()
     catch(const std::exception& err)
     {
         PLOG_ERROR << "Script " << file_name << " disable callback threw exception: " << err.what();
+    }
+}
+
+void ForgeScript::RunOnEjectCallback()
+{
+    if(!on_eject_callback)
+    {
+        return;
+    }
+
+    try
+    {
+        auto result = on_eject_callback();
+        if(!result.valid())
+        {
+            sol::error err = result;
+            PLOG_ERROR << "Script " << file_name << " on-eject callback failed with error: " << err.what();
+        }
+    }
+    catch(const std::exception& err)
+    {
+        PLOG_ERROR << "Script " << file_name << " on-eject callback threw exception: " << err.what();
     }
 }
 
@@ -511,6 +541,14 @@ void ForgeScriptManager::RunScripts()
     }
 
     currently_executing_script = nullptr;
+
+    // A profile apply is delivered here, after the profile's scripts have executed once.
+    // That first pass is what registers their Load callbacks and creates their windows,
+    // both of which must exist before saved state and window positions can be applied.
+    if (has_pending_profile_apply)
+    {
+        ApplyPendingProfileState();
+    }
 }
 
 void ForgeScriptManager::SetReloadOnSave(bool enabled, unsigned poll_ms)
@@ -539,6 +577,9 @@ void ForgeScriptManager::ProcessPendingReloads()
     {
         return;
     }
+
+    // Drop cached user modules so the reloaded scripts pick up module edits too.
+    PurgeUserModuleCache();
 
     for (const auto& file_name : pending_reload)
     {
@@ -589,6 +630,21 @@ void ForgeScriptManager::RegisterCallback(ForgeScriptCallbackType type, sol::pro
             PLOG_DEBUG << "Registered script disable callback for " << currently_executing_script->GetFileName();
             break;
 
+        case ForgeScriptCallbackType::Save:
+            currently_executing_script->save_callback = callback;
+            PLOG_DEBUG << "Registered script save callback for " << currently_executing_script->GetFileName();
+            break;
+
+        case ForgeScriptCallbackType::Load:
+            currently_executing_script->load_callback = callback;
+            PLOG_DEBUG << "Registered script load callback for " << currently_executing_script->GetFileName();
+            break;
+
+        case ForgeScriptCallbackType::OnEject:
+            currently_executing_script->on_eject_callback = callback;
+            PLOG_DEBUG << "Registered script on-eject callback for " << currently_executing_script->GetFileName();
+            break;
+
         default:
             PLOG_WARNING << "Unrecognized script callback type (" << static_cast<int>(type)
                          << ") attempted to be registered for " << currently_executing_script->GetFileName();
@@ -622,6 +678,605 @@ ForgeScript* ForgeScriptManager::GetScript(const unsigned index)
 unsigned ForgeScriptManager::GetScriptCount()
 {
     return scripts.size();
+}
+
+void ForgeScriptManager::SetProfilesDirectory(const std::string& directory_path)
+{
+    profiles_path = directory_path;
+}
+
+void ForgeScriptManager::SetModulesDirectory(const std::string& directory_path)
+{
+    modules_path = directory_path;
+}
+
+void ForgeScriptManager::PurgeUserModuleCache()
+{
+    if (modules_path.empty())
+    {
+        return;
+    }
+
+    sol::state_view lua(uif_lua_state);
+    sol::object loaded_obj = lua["package"]["loaded"];
+    if (!loaded_obj.is<sol::table>())
+    {
+        return;
+    }
+    sol::table loaded = loaded_obj.as<sol::table>();
+
+    // Collect first, purge after -- removing keys while iterating a Lua table is undefined.
+    std::vector<std::string> to_purge;
+    for (const auto& entry : loaded)
+    {
+        if (!entry.first.is<std::string>())
+        {
+            continue;
+        }
+
+        // Resolve the module name the same way require() does with our package.path
+        // patterns ("<modules>\?.lua" and "<modules>\?\?.lua"): dots become path
+        // separators. Only names backed by a real file under the modules directory
+        // are user modules; everything else (built-ins, embedded serpent) is kept.
+        std::string relative = entry.first.as<std::string>();
+        std::replace(relative.begin(), relative.end(), '.', '\\');
+
+        const std::filesystem::path direct = std::filesystem::path(modules_path) / (relative + ".lua");
+        const std::filesystem::path nested = std::filesystem::path(modules_path) / relative / (relative + ".lua");
+
+        std::error_code ec;
+        if (std::filesystem::exists(direct, ec) || std::filesystem::exists(nested, ec))
+        {
+            to_purge.push_back(entry.first.as<std::string>());
+        }
+    }
+
+    for (const auto& module_name : to_purge)
+    {
+        loaded[module_name] = sol::lua_nil;
+        PLOG_DEBUG << "Purged cached module '" << module_name << "' so the next require() re-reads it from disk.";
+    }
+}
+
+std::string ForgeScriptManager::GetProfileFilePath(const std::string& profile_name) const
+{
+    return (std::filesystem::path(profiles_path) / (profile_name + ".profile.lua")).string();
+}
+
+std::string ForgeScriptManager::GetPreferredProfilesFilePath() const
+{
+    return (std::filesystem::path(profiles_path) / "preferred_profiles.lua").string();
+}
+
+std::string ForgeScriptManager::GetCurrentProcessName()
+{
+    char module_path[MAX_PATH] = { 0 };
+    GetModuleFileNameA(nullptr, module_path, MAX_PATH);
+
+    std::string process_name = std::filesystem::path(module_path).filename().string();
+    std::transform(process_name.begin(), process_name.end(), process_name.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return process_name;
+}
+
+// Profile names double as file stems, so reject anything that could escape the
+// profiles directory or produce an invalid Windows file name.
+static bool IsValidProfileName(const std::string& name)
+{
+    if (name.empty() || name.size() > 64)
+    {
+        return false;
+    }
+
+    const std::string forbidden = "\\/:*?\"<>|";
+    for (const char c : name)
+    {
+        if (c < 0x20 || forbidden.find(c) != std::string::npos)
+        {
+            return false;
+        }
+    }
+
+    // Trailing dots/spaces are silently stripped by Windows and would break round-tripping.
+    const char last = name.back();
+    return last != '.' && last != ' ';
+}
+
+sol::object ForgeScriptManager::LoadDataFile(const std::string& file_path) const
+{
+    sol::state_view lua(uif_lua_state);
+
+    try
+    {
+        std::ifstream in(file_path, std::ios::binary);
+        if (!in)
+        {
+            PLOG_ERROR << "Failed to open " << file_path << " for reading.";
+            return sol::lua_nil;
+        }
+        std::string contents{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+
+        sol::load_result chunk = lua.load(contents, "@" + file_path);
+        if (!chunk.valid())
+        {
+            sol::error err = chunk;
+            PLOG_ERROR << "Failed to parse " << file_path << ": " << err.what();
+            return sol::lua_nil;
+        }
+
+        // These files are plain data. Run them in an empty environment so a tampered
+        // file cannot reach globals or call into the rest of the Lua state.
+        sol::protected_function chunk_function = chunk;
+        sol::environment sandbox(lua, sol::create);
+        sol::set_environment(sandbox, chunk_function);
+
+        auto chunk_result = chunk_function();
+        if (!chunk_result.valid())
+        {
+            sol::error err = chunk_result;
+            PLOG_ERROR << "Failed to execute " << file_path << ": " << err.what();
+            return sol::lua_nil;
+        }
+
+        return chunk_result;
+    }
+    catch (const std::exception& err)
+    {
+        PLOG_ERROR << "Exception while reading " << file_path << ": " << err.what();
+        return sol::lua_nil;
+    }
+}
+
+bool ForgeScriptManager::WriteDataFileAtomic(const std::string& file_path, sol::object data) const
+{
+    sol::state_view lua(uif_lua_state);
+
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(file_path).parent_path(), ec);
+    if (ec)
+    {
+        PLOG_ERROR << "Failed to create directory for " << file_path << ": " << ec.message();
+        return false;
+    }
+
+    sol::object serpent_module = lua["package"]["loaded"]["serpent"];
+    if (!serpent_module.is<sol::table>())
+    {
+        PLOG_ERROR << "serpent module is not loaded; cannot write " << file_path;
+        return false;
+    }
+    sol::protected_function serialize = serpent_module.as<sol::table>()["block"];
+
+    sol::table serialize_options = lua.create_table();
+    serialize_options["comment"] = false;
+    auto serialize_result = serialize(data, serialize_options);
+    if (!serialize_result.valid())
+    {
+        sol::error err = serialize_result;
+        PLOG_ERROR << "Failed to serialize data for " << file_path << ": " << err.what();
+        return false;
+    }
+
+    const std::string temp_file = file_path + ".tmp";
+
+    // Write to a temp file and rename over the real one so a crash mid-write
+    // can never corrupt an existing file.
+    {
+        std::ofstream out(temp_file, std::ios::binary | std::ios::trunc);
+        if (!out)
+        {
+            PLOG_ERROR << "Failed to open " << temp_file << " for writing.";
+            return false;
+        }
+        out << "return " << serialize_result.get<std::string>() << "\n";
+    }
+
+    std::filesystem::rename(temp_file, file_path, ec);
+    if (ec)
+    {
+        PLOG_ERROR << "Failed to move " << temp_file << " into place: " << ec.message();
+        std::filesystem::remove(temp_file, ec);
+        return false;
+    }
+
+    return true;
+}
+
+void ForgeScriptManager::SaveProfile(const std::string& profile_name)
+{
+    if (profiles_path.empty())
+    {
+        PLOG_WARNING << "SaveProfile called but no profiles directory is configured.";
+        return;
+    }
+
+    if (!IsValidProfileName(profile_name))
+    {
+        PLOG_ERROR << "Invalid profile name: '" << profile_name << "'";
+        return;
+    }
+
+    sol::state_view lua(uif_lua_state);
+    sol::table profile = lua.create_table();
+    sol::table profile_scripts = lua.create_table();
+
+    for (const auto& script : scripts)
+    {
+        if (!script->IsEnabled())
+        {
+            continue;
+        }
+
+        const std::string script_name = std::filesystem::path(script->GetFileName()).filename().string();
+        sol::table entry = lua.create_table();
+
+        if (script->save_callback)
+        {
+            try
+            {
+                auto callback_result = script->save_callback();
+                if (!callback_result.valid())
+                {
+                    sol::error err = callback_result;
+                    PLOG_ERROR << "Script " << script->GetFileName() << " save callback failed with error: " << err.what();
+                }
+                else
+                {
+                    sol::object state = callback_result;
+                    if (state.is<sol::table>())
+                    {
+                        entry["state"] = state;
+                    }
+                    else if (state != sol::lua_nil)
+                    {
+                        PLOG_WARNING << "Script " << script->GetFileName() << " save callback returned a non-table value; state not saved.";
+                    }
+                }
+            }
+            catch (const std::exception& err)
+            {
+                PLOG_ERROR << "Exception while saving state for " << script->GetFileName() << ": " << err.what();
+            }
+        }
+
+        // The script is recorded in the profile (and will be re-enabled on apply) even
+        // when it has no saved state.
+        profile_scripts[script_name] = entry;
+    }
+
+    profile["scripts"] = profile_scripts;
+
+    // Capture every window's position/size/collapsed state so applying the profile
+    // can put the UI back exactly where the user arranged it.
+    const char* window_settings = ImGui::SaveIniSettingsToMemory(nullptr);
+    profile["window_settings"] = std::string(window_settings ? window_settings : "");
+
+    const std::string profile_file = GetProfileFilePath(profile_name);
+    if (WriteDataFileAtomic(profile_file, profile))
+    {
+        current_profile_name = profile_name;
+        PLOG_INFO << "Saved profile '" << profile_name << "' to " << profile_file;
+    }
+}
+
+void ForgeScriptManager::ApplyProfile(const std::string& profile_name)
+{
+    if (profiles_path.empty())
+    {
+        PLOG_WARNING << "ApplyProfile called but no profiles directory is configured.";
+        return;
+    }
+
+    const std::string profile_file = GetProfileFilePath(profile_name);
+    if (!IsValidProfileName(profile_name) || !std::filesystem::exists(profile_file))
+    {
+        PLOG_ERROR << "Profile '" << profile_name << "' does not exist.";
+        return;
+    }
+
+    sol::object profile_obj = LoadDataFile(profile_file);
+    if (!profile_obj.is<sol::table>())
+    {
+        PLOG_ERROR << "Profile file " << profile_file << " did not return a table; not applied.";
+        return;
+    }
+
+    sol::object scripts_obj = profile_obj.as<sol::table>()["scripts"];
+    if (!scripts_obj.is<sol::table>())
+    {
+        PLOG_ERROR << "Profile file " << profile_file << " has no scripts table; not applied.";
+        return;
+    }
+    sol::table profile_scripts = scripts_obj.as<sol::table>();
+
+    // Enable exactly the scripts the profile lists, disabling everything else.
+    // Disable() runs each script's disable callback so the outgoing set can clean up.
+    for (const auto& script : scripts)
+    {
+        const std::string script_name = std::filesystem::path(script->GetFileName()).filename().string();
+        const bool should_enable = profile_scripts[script_name].valid() && profile_scripts[script_name].get_type() == sol::type::table;
+
+        if (should_enable && !script->IsEnabled())
+        {
+            script->Enable();
+        }
+        else if (!should_enable && script->IsEnabled())
+        {
+            script->Disable();
+        }
+    }
+
+    // Saved state and window positions cannot be applied yet. Newly enabled scripts
+    // have to run once first to register their Load callbacks and create their windows,
+    // so the rest of the apply is queued for the end of the next RunScripts() pass.
+    pending_profile_scripts = scripts_obj;
+    sol::object window_settings = profile_obj.as<sol::table>()["window_settings"];
+    pending_window_settings = window_settings.is<std::string>() ? window_settings.as<std::string>() : std::string();
+    has_pending_profile_apply = true;
+
+    current_profile_name = profile_name;
+    PLOG_INFO << "Applying profile '" << profile_name << "'";
+}
+
+void ForgeScriptManager::ApplyPendingProfileState()
+{
+    has_pending_profile_apply = false;
+
+    if (pending_profile_scripts.is<sol::table>())
+    {
+        sol::table profile_scripts = pending_profile_scripts.as<sol::table>();
+
+        for (const auto& script : scripts)
+        {
+            if (!script->IsEnabled() || !script->load_callback)
+            {
+                continue;
+            }
+
+            const std::string script_name = std::filesystem::path(script->GetFileName()).filename().string();
+            sol::object entry = profile_scripts[script_name];
+            if (!entry.is<sol::table>())
+            {
+                continue;
+            }
+
+            sol::object state = entry.as<sol::table>()["state"];
+            if (!state.is<sol::table>())
+            {
+                continue;
+            }
+
+            try
+            {
+                auto callback_result = script->load_callback(state);
+                if (!callback_result.valid())
+                {
+                    sol::error err = callback_result;
+                    PLOG_ERROR << "Script " << script->GetFileName() << " load callback failed with error: " << err.what();
+                    continue;
+                }
+                PLOG_INFO << "Restored profile state for " << script->GetFileName();
+            }
+            catch (const std::exception& err)
+            {
+                PLOG_ERROR << "Exception while restoring state for " << script->GetFileName() << ": " << err.what();
+            }
+        }
+    }
+
+    if (!pending_window_settings.empty())
+    {
+        ApplyWindowSettings(pending_window_settings);
+    }
+
+    pending_profile_scripts = sol::object(sol::lua_nil);
+    pending_window_settings.clear();
+}
+
+void ForgeScriptManager::ApplyWindowSettings(const std::string& ini_blob)
+{
+    // Hand the blob back to ImGui so windows created after this point read their
+    // saved placement on creation.
+    ImGui::LoadIniSettingsFromMemory(ini_blob.c_str(), ini_blob.size());
+
+    // ImGui only consults ini settings when a window is created, so windows that
+    // already exist are repositioned explicitly. The blob format is a sequence of
+    // "[Window][<name>]" sections holding "Pos=x,y", "Size=w,h", "Collapsed=0/1".
+    std::istringstream stream(ini_blob);
+    std::string line;
+    std::string window_name;
+
+    while (std::getline(stream, line))
+    {
+        if (!line.empty() && line.back() == '\r')
+        {
+            line.pop_back();
+        }
+
+        if (!line.empty() && line.front() == '[')
+        {
+            // Section header. Only "[Window][<name>]" sections are interesting.
+            window_name.clear();
+            const std::string window_prefix = "[Window][";
+            if (line.compare(0, window_prefix.size(), window_prefix) == 0 && line.back() == ']')
+            {
+                window_name = line.substr(window_prefix.size(), line.size() - window_prefix.size() - 1);
+            }
+            continue;
+        }
+
+        if (window_name.empty())
+        {
+            continue;
+        }
+
+        float x = 0.0f;
+        float y = 0.0f;
+        int collapsed = 0;
+        if (sscanf_s(line.c_str(), "Pos=%f,%f", &x, &y) == 2)
+        {
+            ImGui::SetWindowPos(window_name.c_str(), ImVec2(x, y), ImGuiCond_Always);
+        }
+        else if (sscanf_s(line.c_str(), "Size=%f,%f", &x, &y) == 2)
+        {
+            ImGui::SetWindowSize(window_name.c_str(), ImVec2(x, y), ImGuiCond_Always);
+        }
+        else if (sscanf_s(line.c_str(), "Collapsed=%d", &collapsed) == 1)
+        {
+            ImGui::SetWindowCollapsed(window_name.c_str(), collapsed != 0, ImGuiCond_Always);
+        }
+    }
+}
+
+std::vector<std::string> ForgeScriptManager::ListProfiles() const
+{
+    std::vector<std::string> profile_names;
+
+    if (profiles_path.empty() || !std::filesystem::exists(profiles_path))
+    {
+        return profile_names;
+    }
+
+    const std::string profile_suffix = ".profile.lua";
+    for (const auto& entry : std::filesystem::directory_iterator(profiles_path))
+    {
+        if (!entry.is_regular_file())
+        {
+            continue;
+        }
+
+        const std::string file_name = entry.path().filename().string();
+        if (file_name.size() > profile_suffix.size() &&
+            file_name.compare(file_name.size() - profile_suffix.size(), profile_suffix.size(), profile_suffix) == 0)
+        {
+            profile_names.push_back(file_name.substr(0, file_name.size() - profile_suffix.size()));
+        }
+    }
+
+    std::sort(profile_names.begin(), profile_names.end());
+    return profile_names;
+}
+
+std::string ForgeScriptManager::GetCurrentProfileName() const
+{
+    return current_profile_name;
+}
+
+std::string ForgeScriptManager::GetPreferredProfileName() const
+{
+    if (profiles_path.empty())
+    {
+        return std::string();
+    }
+
+    const std::string preferred_file = GetPreferredProfilesFilePath();
+    if (!std::filesystem::exists(preferred_file))
+    {
+        return std::string();
+    }
+
+    sol::object preferred_obj = LoadDataFile(preferred_file);
+    if (!preferred_obj.is<sol::table>())
+    {
+        return std::string();
+    }
+
+    sol::object profile_name = preferred_obj.as<sol::table>()[GetCurrentProcessName()];
+    return profile_name.is<std::string>() ? profile_name.as<std::string>() : std::string();
+}
+
+void ForgeScriptManager::SetPreferredProfile(const std::string& profile_name)
+{
+    if (profiles_path.empty())
+    {
+        PLOG_WARNING << "SetPreferredProfile called but no profiles directory is configured.";
+        return;
+    }
+
+    if (!IsValidProfileName(profile_name))
+    {
+        PLOG_ERROR << "Invalid profile name: '" << profile_name << "'";
+        return;
+    }
+
+    sol::state_view lua(uif_lua_state);
+
+    // Preserve the preferred profiles of other processes by loading the existing map first.
+    const std::string preferred_file = GetPreferredProfilesFilePath();
+    sol::table preferred = lua.create_table();
+    if (std::filesystem::exists(preferred_file))
+    {
+        sol::object existing = LoadDataFile(preferred_file);
+        if (existing.is<sol::table>())
+        {
+            preferred = existing.as<sol::table>();
+        }
+    }
+
+    const std::string process_name = GetCurrentProcessName();
+    preferred[process_name] = profile_name;
+
+    if (WriteDataFileAtomic(preferred_file, preferred))
+    {
+        PLOG_INFO << "Set preferred profile for " << process_name << " to '" << profile_name << "'";
+    }
+}
+
+void ForgeScriptManager::ClearPreferredProfile()
+{
+    if (profiles_path.empty())
+    {
+        return;
+    }
+
+    const std::string preferred_file = GetPreferredProfilesFilePath();
+    if (!std::filesystem::exists(preferred_file))
+    {
+        return;
+    }
+
+    sol::object existing = LoadDataFile(preferred_file);
+    if (!existing.is<sol::table>())
+    {
+        return;
+    }
+
+    sol::table preferred = existing.as<sol::table>();
+    const std::string process_name = GetCurrentProcessName();
+    preferred[process_name] = sol::lua_nil;
+
+    if (WriteDataFileAtomic(preferred_file, preferred))
+    {
+        PLOG_INFO << "Cleared preferred profile for " << process_name;
+    }
+}
+
+void ForgeScriptManager::ApplyPreferredProfile()
+{
+    const std::string profile_name = GetPreferredProfileName();
+    if (profile_name.empty())
+    {
+        PLOG_DEBUG << "No preferred profile configured for " << GetCurrentProcessName();
+        return;
+    }
+
+    if (!std::filesystem::exists(GetProfileFilePath(profile_name)))
+    {
+        PLOG_WARNING << "Preferred profile '" << profile_name << "' for " << GetCurrentProcessName()
+                     << " no longer exists; skipping.";
+        return;
+    }
+
+    PLOG_INFO << "Auto-applying preferred profile '" << profile_name << "' for " << GetCurrentProcessName();
+    ApplyProfile(profile_name);
+}
+
+void ForgeScriptManager::RunOnEjectCallbacks()
+{
+    for (const auto& script : scripts)
+    {
+        script->RunOnEjectCallback();
+    }
 }
 
 void ForgeScriptManager::RefreshScripts()
