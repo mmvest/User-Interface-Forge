@@ -55,9 +55,10 @@ set RUNTIME=/MT
 
 @REM Graphics API linking options
 set LINK_D3D11=d3d11.lib dxgi.lib d3dcompiler.lib
+set LINK_D3D12=d3d12.lib
 set LINK_IMGUI_WIN32=user32.lib gdi32.lib imm32.lib
 set LINK_WIC=ole32.lib windowscodecs.lib
-set LINK_GRAPHICS=%LINK_D3D11% %LINK_IMGUI_WIN32% %LINK_WIC%
+set LINK_GRAPHICS=%LINK_D3D11% %LINK_D3D12% %LINK_IMGUI_WIN32% %LINK_WIC%
 
 @REM Injector linking
 set LINK_FTXUI="%FTXUI_LIB%"
@@ -228,7 +229,7 @@ if "%BUILD_CORE%"=="true" (
         /Fo"%OBJ_DIR_EXTERNALS%\imgui\\" ^
         "%IMGUI_DIR%\imgui.cpp" "%IMGUI_DIR%\imgui_draw.cpp" "%IMGUI_DIR%\imgui_tables.cpp" "%IMGUI_DIR%\imgui_widgets.cpp" ^
         "%IMGUI_DIR%\misc\cpp\imgui_stdlib.cpp" ^
-        "%IMGUI_DIR%\backends\imgui_impl_win32.cpp" "%IMGUI_DIR%\backends\imgui_impl_dx11.cpp"
+        "%IMGUI_DIR%\backends\imgui_impl_win32.cpp" "%IMGUI_DIR%\backends\imgui_impl_dx11.cpp" "%IMGUI_DIR%\backends\imgui_impl_dx12.cpp"
     if errorlevel 1 goto error
 
     @REM MinHook
@@ -239,7 +240,7 @@ if "%BUILD_CORE%"=="true" (
     if errorlevel 1 goto error
 
     @REM kiero
-    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /DUIFORGE_KIERO_INCLUDE_D3D11=1 /DUIFORGE_KIERO_USE_MINHOOK=1 ^
+    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /DUIFORGE_KIERO_INCLUDE_D3D11=1 /DUIFORGE_KIERO_INCLUDE_D3D12=1 /DUIFORGE_KIERO_USE_MINHOOK=1 ^
         /FI"%SRC_DIR%\compat\kiero_compat.h" ^
         /I"%KIERO_DIR%" /I"%EXTERNALS_DIR%" ^
         /Fo"%OBJ_DIR_EXTERNALS%\kiero\\" ^

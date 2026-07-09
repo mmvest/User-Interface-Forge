@@ -47,7 +47,9 @@
 
 
 #include <Windows.h>
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -92,7 +94,9 @@ void CleanupUiForge();
 #define GET_CONFIG_VAL(root_dir, val_type, val_name) scl::config_file(std::string(root_dir + "\\" + CONFIG_FILE), scl::config_file::READ).get<val_type>(val_name)
 
 // For Kiero
-static const unsigned D3D11_PRESENT_FUNCTION_INDEX  = 8;
+static const unsigned D3D11_PRESENT_FUNCTION_INDEX                = 8;
+static const unsigned D3D12_PRESENT_FUNCTION_INDEX                = 140;
+static const unsigned D3D12_EXECUTE_COMMAND_LISTS_FUNCTION_INDEX  = 54;
 kiero::Status::Enum kiero_is_initialized = kiero::Status::NotInitializedError;  // Default value so we know kiero is not initialized
 kiero::Status::Enum kiero_is_bound = kiero::Status::UnknownError;               // Default value so we know kiero is not bound
 
@@ -112,6 +116,9 @@ int max_log_size = 0;
 int max_log_files = 0;
 std::string log_file_name;
 plog::Severity logging_level;
+
+// Graphics API selection ("auto", "d3d11", or "d3d12")
+std::string graphics_api_name = "auto";
 
 // Script reloading
 int reload_on_save = 0;
@@ -200,8 +207,49 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
     }
     
     PLOG_INFO << "Initializing Core...";
+
+    // Resolve which graphics API to hook. If the config says "auto" (or the key is missing) we detect it
+    // by checking which runtime DLLs the target process has loaded. D3D12 is checked before D3D11 because
+    // D3D12 applications very commonly also load d3d11.dll (e.g. via D3D11On12 or media components), while
+    // pure D3D11 applications rarely load d3d12.dll.
+    kiero::RenderType::Enum render_type = kiero::RenderType::None;
+    if (graphics_api_name == "auto")
+    {
+        if (GetModuleHandleA("d3d12.dll"))
+        {
+            render_type = kiero::RenderType::D3D12;
+        }
+        else if (GetModuleHandleA("d3d11.dll"))
+        {
+            render_type = kiero::RenderType::D3D11;
+        }
+        else
+        {
+            std::string err_msg("Failed to auto-detect the target process graphics API (no d3d11.dll or d3d12.dll loaded). Set GRAPHICS_API in the config to choose one explicitly.");
+            PLOG_FATAL << err_msg;
+            CoreUtils::ErrorMessageBox(std::move(err_msg));
+            return EXIT_FAILURE;
+        }
+        PLOG_INFO << "Auto-detected graphics API: " << (render_type == kiero::RenderType::D3D12 ? "d3d12" : "d3d11");
+    }
+    else if (graphics_api_name == "d3d11")
+    {
+        render_type = kiero::RenderType::D3D11;
+    }
+    else if (graphics_api_name == "d3d12")
+    {
+        render_type = kiero::RenderType::D3D12;
+    }
+    else
+    {
+        std::string err_msg("Unsupported GRAPHICS_API value \"" + graphics_api_name + "\". Must be one of: auto, d3d11, d3d12.");
+        PLOG_FATAL << err_msg;
+        CoreUtils::ErrorMessageBox(std::move(err_msg));
+        return EXIT_FAILURE;
+    }
+
     PLOG_DEBUG << "Initializing kiero...";
-    kiero_is_initialized = kiero::init(kiero::RenderType::D3D11);
+    kiero_is_initialized = kiero::init(render_type);
     if (kiero_is_initialized != kiero::Status::Success)
     {
         std::string err_msg("Failed to initialize graphics api hooking functionality. Kiero status: " + std::to_string(kiero_is_initialized) + ". (See Kiero github or source for more info)");
@@ -210,10 +258,15 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
         return EXIT_FAILURE;
     }
 
-    // Based on configuration, choose the graphics api. For now, its just D3D11.
-    // TODO: Maybe add a switch statement? Something here to choose which Graphics API
     PLOG_DEBUG << "Creating GraphicsAPI object";
-    graphics_api = new D3D11GraphicsApi(OnGraphicsApiInvoke);
+    if (render_type == kiero::RenderType::D3D12)
+    {
+        graphics_api = new D3D12GraphicsApi(OnGraphicsApiInvoke);
+    }
+    else
+    {
+        graphics_api = new D3D11GraphicsApi(OnGraphicsApiInvoke);
+    }
 
     try
     {
@@ -226,8 +279,23 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
         return EXIT_FAILURE;
     }
 
-    // Hook the graphics API
-    kiero_is_bound = kiero::bind(D3D11_PRESENT_FUNCTION_INDEX, (void**)&graphics_api->OriginalFunction, graphics_api->HookedFunction);
+    // Hook the graphics API. D3D12 needs an extra hook on ExecuteCommandLists so we can capture the
+    // application's command queue (the swap chain alone cannot provide it), and it must be bound before
+    // Present so the queue is available by the time our Present hook first runs.
+    if (render_type == kiero::RenderType::D3D12)
+    {
+        kiero_is_bound = kiero::bind(D3D12_EXECUTE_COMMAND_LISTS_FUNCTION_INDEX, (void**)&D3D12GraphicsApi::OriginalExecuteCommandLists, (void*)D3D12GraphicsApi::HookedExecuteCommandLists);
+        if (kiero_is_bound != kiero::Status::Success)
+        {
+            std::string err_msg("Failed to hook graphics api \"ExecuteCommandLists\" function. Kiero status: " + std::to_string(kiero_is_bound) + ". (See Kiero github or source for more info)\n");
+            PLOG_FATAL << err_msg;
+            CoreUtils::ErrorMessageBox(std::move(err_msg));
+            return EXIT_FAILURE;
+        }
+    }
+
+    unsigned present_index = (render_type == kiero::RenderType::D3D12) ? D3D12_PRESENT_FUNCTION_INDEX : D3D11_PRESENT_FUNCTION_INDEX;
+    kiero_is_bound = kiero::bind(present_index, (void**)&graphics_api->OriginalFunction, graphics_api->HookedFunction);
     if (kiero_is_bound != kiero::Status::Success)
     {
         std::string err_msg("Failed to hook graphics api \"present\" function. Kiero status: " + std::to_string(kiero_is_bound) + ". (See Kiero github or source for more info)\n");
@@ -390,6 +458,17 @@ void LoadConfiguration()
     log_file_name = config_parent_dir + "\\" + GET_CONFIG_VAL(config_parent_dir, std::string, "LOG_FILE_NAME");
 
     logging_level  = static_cast<plog::Severity>(GET_CONFIG_VAL(config_parent_dir, unsigned int, "LOGGING_LEVEL"));
+
+    try
+    {
+        graphics_api_name = GET_CONFIG_VAL(config_parent_dir, std::string, "GRAPHICS_API");
+        std::transform(graphics_api_name.begin(), graphics_api_name.end(), graphics_api_name.begin(),
+                       [](unsigned char curr_char) { return static_cast<char>(std::tolower(curr_char)); });
+    }
+    catch(const std::exception&)
+    {
+        graphics_api_name = "auto";  // Missing key -- fall back to auto-detection
+    }
 }
 
 /**
@@ -546,11 +625,11 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
 
     uiforge_table["ReleaseTexture"] = [](void* texture)
     {
-        if (!texture)
+        if (!texture || !IGraphicsApi::ReleaseTexture)
         {
             return;
         }
-        ((IUnknown*)texture)->Release();
+        IGraphicsApi::ReleaseTexture(texture);
     };
 
     // ForgeScriptManager Bindings
@@ -644,9 +723,9 @@ void CleanupUiForge()
             uif_lua_state = nullptr;
         }
 
-        if (settings_icon)
+        if (settings_icon && IGraphicsApi::ReleaseTexture)
         {
-            ((IUnknown*)settings_icon)->Release();
+            IGraphicsApi::ReleaseTexture(settings_icon);
             settings_icon = nullptr;
         }
 
