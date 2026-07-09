@@ -4,17 +4,27 @@ setlocal EnableDelayedExpansion
 ::======================================================================================================
 :: File:            build_uiforge.bat
 :: Description:     Builds UiForge, including the injector, Lua bindings, and core, with all graphics APIs.
-::                  Places UiForge.exe in the working directory.
+::                  Places UiForge.exe in the working directory. Can also package a built UiForge into
+::                  a release zip.
 ::
-:: Usage:           build_uiforge.bat
+:: Usage:           build_uiforge.bat [target]
+::
+:: Targets:         (none)          Build everything
+::                  injector        Build just the injector (UiForge.exe) and FTXUI
+::                  core            Build just the core DLL and its dependencies
+::                  testd3d11       Build the D3D11 test window
+::                  ftxui           Build just the FTXUI static library
+::                  cleanup         Remove build artifacts (no build)
+::                  create-package  Zip a already-built UiForge into releases\ (no build)
 ::
 :: Example:         build_uiforge.bat
+::                  build_uiforge.bat create-package
+::                  build_uiforge.bat create-package V1.0.0
 ::
 :: Author:          mmvest (wereox)
 :: Date:            2024-09-26
 ::
-:: Notes:           Only DirectX 11 is fully supported at this time.
-:: Requirements:    Visual Studio 2022 (vcvars64.bat), DirectX 11 SDK, LuaJIT
+:: Requirements:    Visual Studio 2022 (vcvars64.bat), DirectX 11/12 SDK, LuaJIT
 ::
 ::======================================================================================================
 
@@ -68,6 +78,9 @@ set SOL_IMGUI_DEFINES=IMGUI_NO_DOCKING
 
 @REM Manual cleanup mode (no build).
 if /I "%~1"=="cleanup" goto cleanup
+
+@REM Package an already-built UiForge into a release zip (no build).
+if /I "%~1"=="create-package" goto create_package
 
 @REM Initialize build environment
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -336,6 +349,75 @@ if exist "%BIN_DIR%" (
 if "%BUILD_FAILED%"=="true" (
     exit /b 1
 )
+exit /b 0
+
+:create_package
+@REM Packages an ALREADY-BUILT UiForge into a release zip. This does not build anything -- build
+@REM UiForge first, then run this. An optional version string (arg 2) is appended to the file name,
+@REM e.g. "create-package V1.0.0" produces "UiForge-V1.0.0.zip"; with no version it is "UiForge.zip".
+echo Creating UiForge release package...
+
+set "PKG_VERSION=%~2"
+set "RELEASES_DIR=%CWD%releases"
+set "STAGING_DIR=%BIN_DIR%\_package_staging"
+
+if defined PKG_VERSION (
+    set "ZIP_NAME=UiForge-%PKG_VERSION%.zip"
+) else (
+    set "ZIP_NAME=UiForge.zip"
+)
+set "ZIP_PATH=%RELEASES_DIR%\%ZIP_NAME%"
+
+@REM Verify UiForge has actually been built before packaging.
+if not exist "%CWD%UiForge.exe" (
+    echo ERROR: UiForge.exe not found. Build UiForge before creating a package.
+    exit /b 1
+)
+if not exist "%BIN_DIR%\uiforge_core.dll" (
+    echo ERROR: bin\uiforge_core.dll not found. Build UiForge before creating a package.
+    exit /b 1
+)
+if not exist "%CWD%config" (
+    echo ERROR: config not found next to build_uiforge.bat.
+    exit /b 1
+)
+
+@REM Build a clean staging tree that mirrors the expected release layout.
+if exist "%STAGING_DIR%" rd /S /Q "%STAGING_DIR%"
+mkdir "%STAGING_DIR%"
+mkdir "%STAGING_DIR%\bin"
+mkdir "%STAGING_DIR%\scripts"
+
+copy /Y "%CWD%UiForge.exe" "%STAGING_DIR%\" >nul
+copy /Y "%CWD%config" "%STAGING_DIR%\" >nul
+copy /Y "%BIN_DIR%\uiforge_core.dll" "%STAGING_DIR%\bin\" >nul
+
+@REM Ship the runtime script assets (modules and resources), but not user-generated profiles.
+if exist "%CWD%scripts\modules"   xcopy /E /I /Y "%CWD%scripts\modules"   "%STAGING_DIR%\scripts\modules"   >nul
+if exist "%CWD%scripts\resources" xcopy /E /I /Y "%CWD%scripts\resources" "%STAGING_DIR%\scripts\resources" >nul
+
+@REM Include the example scripts if they are present.
+for %%F in ("%CWD%scripts\*.lua") do copy /Y "%%~fF" "%STAGING_DIR%\scripts\" >nul
+
+@REM Create the releases directory and (re)write the zip.
+if not exist "%RELEASES_DIR%" mkdir "%RELEASES_DIR%"
+if exist "%ZIP_PATH%" del /F /Q "%ZIP_PATH%"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '%STAGING_DIR%\*' -DestinationPath '%ZIP_PATH%' -Force"
+if errorlevel 1 (
+    echo ERROR: Failed to create the zip archive.
+    if exist "%STAGING_DIR%" rd /S /Q "%STAGING_DIR%"
+    exit /b 1
+)
+
+rd /S /Q "%STAGING_DIR%"
+
+if not exist "%ZIP_PATH%" (
+    echo ERROR: Packaging finished but "%ZIP_PATH%" was not created.
+    exit /b 1
+)
+
+echo Created package: %ZIP_PATH%
 exit /b 0
 
 :build_all

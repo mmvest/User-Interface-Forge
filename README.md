@@ -12,16 +12,16 @@ A framework for injecting and managing custom UI elements in Windows Processes.
 
 ## Overview
 
-User Interface Forge (UiForge) is a tool for injecting and managing custom UI elements in any Windows GUI applications using DirectX 11. The framework provides a means whereby users can create their own UI elements using the [ImGui](https://github.com/ocornut/imgui) library and then have their UI elements rendered in the application. Since your code will be running within the address space of the target process, you also have access to that address space meaning you can expose variables and addresses within the process that you can then access, display, or manipulate via your ImGui UI. This tool is ideal for developers or hobbyists who want to extend or modify the behavior of existing software, such as games or graphical applications.
+User Interface Forge (UiForge) is a tool for injecting and managing custom UI elements in Windows GUI applications rendered with DirectX 11 or DirectX 12. The framework provides a means whereby users can create their own UI elements using the [ImGui](https://github.com/ocornut/imgui) library and then have their UI elements rendered in the application. Since your code will be running within the address space of the target process, you also have access to that address space, meaning you can expose variables and addresses within the process that you can then access, display, or manipulate via your ImGui UI. This tool is ideal for developers or hobbyists who want to extend or modify the behavior of existing software, such as games or graphical applications.
 
 UiForge has three main parts:
-1. **[ImGui Lua Bindings (sol_ImGui.h)](include/imgui/sol_ImGui.h)** - These bindings provide access to ImGui's functionality in Lua so you can write and create your own UI elements in Lua instead of C/C++. I have unofficially dubbed these Lua scripts as "ForgeScripts".
+1. **[ImGui Lua Bindings (sol_ImGui.h)](https://github.com/mmvest/sol2_ImGui_Bindings)** - These bindings provide access to ImGui's functionality in Lua so you can write and create your own UI elements in Lua instead of C/C++. I have unofficially dubbed these Lua scripts as "ForgeScripts".
 
-1. **The Core (uif_core.dll)** - This is responsible for loading, running, and managing all of the Lua scripts. It is also responsible for hooking the correct graphics api functions so that the custom UI can be displayed within the context of the target application.
+1. **The Core (uiforge_core.dll)** - This is responsible for loading, running, and managing all of the Lua scripts. It is also responsible for hooking the correct graphics api functions so that the custom UI can be displayed within the context of the target application.
 
-1. **The Injector (UiForge.exe)** - This is responsible for getting the uif_core DLL into the target application and starting it.
+1. **The Injector (UiForge.exe)** - This is responsible for getting the `uiforge_core.dll` into the target application and starting it.
 
-Currently this project only supports 64-bit DirectX11, but the goal is to support DirectX12, OpenGL, and Vulkan.
+UiForge supports 64-bit **DirectX 11** and **DirectX 12**, and can auto-detect which of the two a target process is using. Vulkan and OpenGL are planned but not yet implemented.
 
 <div align="center">
 
@@ -34,87 +34,234 @@ Currently this project only supports 64-bit DirectX11, but the goal is to suppor
 
 - **[Windows SDK](https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/)**: Must have `vcvars64.bat` and `cl` for compiling the code.
 
-- **[DirectX SDK](https://learn.microsoft.com/en-us/windows/win32/directx-sdk--august-2009-)**: Included with the Windows SDK
+- **[DirectX SDK](https://learn.microsoft.com/en-us/windows/win32/directx-sdk--august-2009-)**: Included with the Windows SDK.
 
 
 ## Building
 
-1. **Clone the Repository**:
+1. **Clone the Repository** (dependencies are vendored as git submodules under `externals/`):
     ```bash
     git clone --recurse-submodules https://github.com/mmvest/User-Interface-Forge.git
     cd user-interface-forge
     ```
+    If you already cloned without submodules, run:
+    ```bash
+    git submodule update --init --recursive
+    ```
 
 2. **Build**:
 
-    To build, use the [build_uiforge.bat](build_uiforge.bat) script found in the root of the project. You can invoke the build like so:
+    To build, use the [build_uiforge.bat](build_uiforge.bat) script found in the root of the project:
     ```bash
     build_uiforge.bat
     ```
 
-    This will build all the components of the application and place them in the `bin` directory. The main executable will be called **UiForge.exe**.
+    This builds all components and places them in the `bin` directory (the core DLL is `bin\uiforge_core.dll`). The main executable, **UiForge.exe**, is placed in the project root.
+
+    The build script also accepts individual targets:
+    ```bash
+    build_uiforge.bat injector        :: Just the injector (UiForge.exe) and FTXUI
+    build_uiforge.bat core            :: Just the core DLL and its dependencies
+    build_uiforge.bat testd3d11       :: The D3D11 test window (see Testing/Demo)
+    build_uiforge.bat ftxui           :: Just the FTXUI static library
+    build_uiforge.bat cleanup         :: Remove build artifacts, no build
+    build_uiforge.bat create-package  :: Package an already-built UiForge into a release zip, no build
+    ```
 
 You are now all set to use UiForge!
+
+### Creating a release package
+
+Once UiForge is built, `create-package` bundles the runtime components into a zip under a `releases` directory. This does **not** build anything, so build UiForge first.
+```bash
+build_uiforge.bat create-package          :: Produces releases\UiForge.zip
+build_uiforge.bat create-package V1.0.0   :: Produces releases\UiForge-V1.0.0.zip
+```
+An optional version string (second argument) is appended to the file name. Without a version string, the package is just named `UiForge.zip`.
 
 > **Note:** Just another friendly reminder that anti-virus software may flag `UiForge.exe` as a virus. This is because the code uses a very classic and simple process injection technique -- and it is not very sneaky about it either. Go ahead and look over the code though -- it is not malicious.
 
 ## How to Use UiForge
-Once UiForge is built, you can run it from the commandline like so
+
+Run UiForge from the command line, targeting a process by name or by PID:
 ```bash
 UiForge.exe -n <target_application_name>
+UiForge.exe -p <pid>
+UiForge.exe -h | -help | --help
 ```
-As long as the application is actively rendering frames using a supported graphics api, you should see an icon pop up in the top left corner of the window.
 
-To stop UiForge, press `Ctrl+Alt+Shift+End`. Upon pressing this key combo, a dialog box should pop up telling you that UiForge has cleaned up.
+UiForge launches a small terminal UI (powered by [FTXUI](https://github.com/ArthurSonzogni/FTXUI)) that scans for matching processes and then behaves based on how many it finds:
 
-As of right now, there is no way to change this keybind except by changing the code itself, but I plan to add the ability to manage keybinds in the future. 
+- **No matches** - shows a message and exits.
+- **One match** - injects into it automatically.
+- **Two or more matches** - shows an interactive selector so you can pick **one or more** processes to inject into in a single run.
 
-Note that NOT closing this dialog box and then attempting to re-inject may cause UiForge to fail.
+Name matching (`-n`) is fuzzy and ranked: the target and process names are normalized (lowercased, `.exe` stripped) and ranked as exact match, then substring match, then a bounded edit-distance match to catch small typos. Every match is shown in the selector.
 
-UiForge requires a specific file structure to function properly. By default, the following structure is expected:
+In the selector:
+- `↑` / `↓` - move
+- `Space` - toggle selection of the highlighted process
+- `Enter` / `Inject` button - inject into all selected processes
+- `Esc` - cancel
+- `PageUp` / `PageDown` - scroll the live log panel
+
+Before injecting, UiForge checks whether the core DLL is already loaded in the target to avoid a double-injection.
+
+As long as the application is actively rendering frames with a supported graphics API, you should see the UiForge icon appear in the top-left corner of the window. Click it to open the Settings window.
+
+To stop UiForge, click the **Eject** button in the Settings window, or press `Ctrl+Alt+Shift+End`. A dialog box will pop up confirming that UiForge has cleaned up. Note that NOT closing this dialog and then attempting to re-inject may cause UiForge to fail. (Keybinds are currently fixed in code; configurable keybinds are planned.)
+
+### Expected file structure
+
+UiForge expects the following structure. The core DLL path and the script/module/resource directories are configurable through the `config` file; the `profiles` directory is always created inside the scripts directory.
 ```
 project-root/
-├── UiForge.exe     # The actual executable to run
-├── config          # Configuration file for UiForge 
-├── bin/ 
-│ └── uif_core.dll  # Core DLL for UiForge 
-└── scripts/        # Directory for Lua scripts to be loaded and run 
-  ├── modules/      # Subdirectory for custom libraries or modules
-  └── resources/    # Subdirectory containing images and other resources for UiForge and scripts.
+├── UiForge.exe            # The injector / launcher
+├── config                 # Configuration file for UiForge
+├── bin/
+│  └── uiforge_core.dll    # Core DLL injected into the target
+└── scripts/               # Lua scripts loaded and run in the target
+   ├── modules/            # Shared libraries / modules (ships with imgui and uiforge type-hint stubs)
+   ├── resources/          # Shared images and other resources for UiForge and scripts
+   ├── profiles/           # Saved profiles (created on demand); see "Profiles" below
+   ├── my_script.lua       # A loose script
+   └── my_package/         # A script package (see "Script packages" below)
+      ├── my_package.lua   # The package's entry script
+      ├── modules/         # Optional modules private to this package
+      └── resources/       # Optional resources private to this package
 ```
-This structure is fully configurable through the `config` file, allowing you to customize the locations of the core DLL, scripts, and modules to suit your project setup.
+
+### Script packages
+
+Besides loose `.lua` files, a script can be shipped as a self-contained directory dropped into `scripts\`. This lets a script bundle its own modules and images so users don't have to place files into the shared `modules` and `resources` directories by hand.
+
+A subdirectory of `scripts\` is treated as a script package when it contains an entry script directly inside it, named (in order of preference):
+
+1. `<directory name>.lua` (e.g. `my_package\my_package.lua`)
+2. `main.lua`
+3. `init.lua`
+
+Inside a package:
+
+- An optional `modules\` folder is prepended to `package.path` while the package's script runs, so its `require()` calls resolve local modules first and fall back to the shared `scripts\modules` directory.
+- An optional `resources\` folder is checked first when the script loads resources by relative path (e.g. `UiForge.LoadTexture`), falling back to the shared `scripts\resources` directory.
+
+The shared `modules`, `resources`, and `profiles` directories are never treated as packages. Loose scripts continue to work exactly as before, and profiles identify a packaged script by its entry script's file name, so two packages (or a package and a loose script) must not use the same script file name.
 
 ## Lua Script Integration and Features
 
-UiForge simplifies the management and creation of custom injected UI elements by providing you with the tools to make your UI through Lua-based scripts. Here’s how it works:
+You build your UI in Lua-based scripts (ForgeScripts). How it works:
 
-- **Effortless Script Loading**: Place your Lua scripts in the `scripts` directory. UiForge automatically executes them every frame in the target application, regardless of whether the scripts uses the ImGui bindings or not.
+- **Script loading**: Scripts in the `scripts` directory (loose `.lua` files and script packages) are executed every frame in the target application, whether or not they use the ImGui bindings.
 
-- **Integrated Rendering**: UI elements are rendered directly within the target application's graphics API render loop.
+- **Isolated script environments**: Each script runs in its own Lua environment, so scripts don't clobber each other's globals. Shared globals like `ImGui` and `UiForge` still fall through and remain accessible.
 
-- **Streamlined ImGui Usage**: You don’t need to handle ImGui contexts or frame setup. Simply focus on defining your windows using `ImGui.Begin()`, `ImGui.End()`, and the code in between.
+- **Rendering**: UI elements are rendered within the target application's graphics API render loop (D3D11 or D3D12). ImGui context and frame setup are handled for you; a script just calls `ImGui.Begin()`, `ImGui.End()`, and whatever goes in between.
 
-- **Powered by LuaJIT**: UiForge uses LuaJIT, which is Lua 5.1 compatible and provides extensive features for high-performance scripting. See the [LuaJIT documentation](https://luajit.org/) for more details.
+- **LuaJIT**: Scripts run on LuaJIT, which is Lua 5.1 compatible. See the [LuaJIT documentation](https://luajit.org/) for details.
 
-- **Global ImGui Bindings**: Lua ImGui bindings (powered by [Sol2](https://github.com/ThePhD/sol2)) are globally exposed, so there’s no need to require or load additional DLLs or modules.
+- **ImGui bindings**: The Lua ImGui bindings (powered by [Sol2](https://github.com/ThePhD/sol2)) are exposed as globals, so scripts don't need to require or load anything to use them.
 
-- **Type Hint Support**: An `imgui.lua` file, located in `scripts\modules\imgui`, provides type hints for most supported functions. While not exhaustive or perfect, it offers a helpful guide. For a full list of supported functions, refer to `include/imgui/sol_ImGui.h`.
+- **Type hints**: An `imgui.lua` file in `scripts\modules\imgui` provides type hints for most supported functions. It is not exhaustive, but it is a useful reference.
 
-- **Custom Modules**: Use the `scripts\modules` directory to add any custom libraries or lua modules you want to access in your scripts.
+- **Custom modules**: Add libraries or Lua modules to `scripts\modules` to `require` them from your scripts, or bundle them inside a script package's own `modules` folder. An embedded `serpent` serializer is available via `require("serpent")`.
 
-- **Example Script**: The [`test_window_01.lua`](scripts/test_window_01.lua) and [`test_window_02.lua`](scripts/test_window_01.lua) files demonstrate basic use cases for the ImGui bindings and UiForge, serving as a helpful starting point.
+- **Example scripts**: [`test_window_01.lua`](scripts/test_window_01.lua) and [`test_window_02.lua`](scripts/test_window_02.lua) show basic use of the ImGui bindings and UiForge.
 
-- **Static Linking for Simplicity**: All third-party dependencies (ImGui, Kiero, LuaJIT, etc.) are statically linked into UiForge. This eliminates the need to manage DLLs or download and install additional libraries. All libraries required for the build can be found in the [`libs`](libs) folder.
+- **Static linking**: Third-party dependencies (ImGui, Kiero, LuaJIT, etc.) are statically linked into UiForge, so there are no extra DLLs to manage. Dependencies are typically kept as git submodules under the [`externals`](externals) folder.
 
-- **Customizable Configurations**: Various configurations are exposed through the `config` file, enabling customization of script and module directories, the location of the core DLL, and more.
+- **Configuration**: Options are set in the `config` file (see [Configuration](#configuration)).
+
+### The Settings window
+
+Clicking the UiForge icon opens the Settings window, which lets you:
+
+- **Enable/disable** individual scripts via checkboxes.
+- **Select** a script to view its own settings UI (Settings tab) or its **Debug** stats (file size, read/hash time, average load/execute time, execution count).
+- **Refresh** the script list to pick up newly added script files and script packages.
+- **Hot-Reload** the selected script or all scripts if none are selected.
+- Manage **Profiles** via the File menu (see below).
+- **Eject** UiForge.
+
+You can also click-n-drag the UiForge Icon to move it around.
+
+### The Lua API
+
+Exposed under the global `UiForge` table:
+
+| Symbol | Description |
+|--------|-------------|
+| `UiForge.scripts_path` / `modules_path` / `resources_path` / `profiles_path` | Absolute paths to the corresponding directories. |
+| `UiForge.LoadTexture(path)` | Loads an image into a texture handle usable with `ImGui.Image`. Relative paths resolve against the calling package's `resources` folder first (if any), then the shared resources directory. |
+| `UiForge.CreateTextureFromMemory(rgba, width, height)` | Creates a texture from raw 32-bit RGBA pixel bytes (pass a Lua string, e.g. via `ffi.string(buf, len)`). |
+| `UiForge.ReleaseTexture(handle)` | Releases a texture created by the above. |
+| `UiForge.RegisterCallback(type, fn)` | Registers a callback for the current script (see below). |
+| `UiForge.CallbackType` | Table of callback type constants: `Settings`, `DisableScript`, `Save`, `Load`, `OnEject`. |
+
+### Script callbacks
+
+A script registers callbacks with `UiForge.RegisterCallback(UiForge.CallbackType.<Type>, function ... end)`:
+
+- **`Settings`** - Renders the script's own settings UI inside the UiForge Settings panel (Settings tab) when the script is selected.
+- **`DisableScript`** - Teardown/cleanup; runs once when the script transitions from enabled to disabled.
+- **`Save`** - Returns a plain-data table (or `nil` to skip). The returned table is captured into the profile being saved. Non-table return values are ignored with a warning.
+- **`Load`** - Receives the table previously produced by this script's `Save` callback when a profile is applied.
+- **`OnEject`** - Last-chance cleanup for every script (enabled or not), run right before the core unloads.
+
+## Profiles
+
+Instead of saving individual scripts, UiForge saves **profiles**. A profile captures:
+
+1. Which scripts are enabled.
+2. Each enabled script's state, as returned by its `Save` callback.
+3. The ImGui window layout (positions, sizes, and collapsed state).
+
+Profiles are stored as `scripts\profiles\<name>.profile.lua`. Profile names must be valid file names. Currently profile names are capped at 64 characters.
+
+**Applying a profile** (File > Select Profile) enables exactly the scripts the profile lists, disables all others, then restores each script's saved state (via its `Load` callback) and the saved window layout.
+
+**Saving a profile** (File > Save Profile...) opens a dialog, prefilled with the current profile name, to capture the current setup under a name of your choosing.
+
+**Preferred profile per process** (File > Set Profile As Preferred): you can mark the current profile as preferred for the current target executable. Preferences are stored per process (keyed by the lowercased executable name) in `scripts\profiles\preferred_profiles.lua`, and the preferred profile is applied automatically the next time UiForge is injected into that same executable. Because preferences are per-process, a profile made for one game will not be auto-loaded into a different process.
+
+## Configuration
+
+Options are set in the `config` file as `KEY=value` pairs.
+
+| Key | Description |
+|-----|-------------|
+| `CORE_DLL` | Path to the core DLL to inject (relative to `UiForge.exe`, or an absolute path). Default `bin\uiforge_core.dll`. |
+| `FORGE_BIN_DIR` | Bin directory. |
+| `FORGE_SCRIPT_DIR` | Scripts directory (relative to the config file). |
+| `FORGE_MODULES_DIR` | Modules directory (relative to the scripts directory). |
+| `FORGE_RESOURCES_DIR` | Resources directory (relative to the scripts directory). |
+| `RELOAD_ON_SAVE` | `1` enables automatic reloading of scripts when their file changes; `0` disables. |
+| `RELOAD_ON_SAVE_POLL_MS` | How often (ms) to poll script timestamps when reload-on-save is enabled. Default 2500. |
+| `SETTINGS_ICON_FILE` | Settings icon image file (in the resources directory). |
+| `SETTINGS_ICON_SIZE_X` / `SETTINGS_ICON_SIZE_Y` | Settings icon size in pixels. |
+| `GRAPHICS_API` | `auto` (default), `d3d11`, or `d3d12`. `auto` detects the API from the DLLs loaded in the target (preferring D3D12 when both are present). |
+| `MAX_LOG_SIZE_BYTES` | Maximum size of a single rolling log file. |
+| `MAX_LOG_FILES` | Number of rolling log files to keep. |
+| `INJECTOR_LOG_FILE_NAME` | Injector log file name. Default `inject_log.txt`. |
+| `LOG_FILE_NAME` | Core log file name. Default `forge_log.txt`. |
+| `LOGGING_LEVEL` | `0` none, `1` fatal, `2` error, `3` warning, `4` info, `5` debug, `6` verbose. |
+| `BITS` | Unused. |
+
+> The `profiles` directory is not configurable; it is always `<scripts directory>\profiles`.
+
+### Logging
+
+UiForge writes two rolling logs, both governed by `LOGGING_LEVEL`, `MAX_LOG_SIZE_BYTES`, and `MAX_LOG_FILES`:
+
+- **Injector log** (`INJECTOR_LOG_FILE_NAME`, default `inject_log.txt`) is written to the injector's working directory. It records the injection process: argument parsing, the process scan and match results, and the per-process open/inject/verify/run/wait steps and any errors. The same output is mirrored into the injector's on-screen log panel.
+- **Core log** (`LOG_FILE_NAME`, default `forge_log.txt`) is written next to the `config` file. It records the in-process lifecycle: configuration values, kiero initialization and graphics-API selection, hook binding, ImGui/graphics initialization, script loading/execution/reload, profile save/apply, callback errors, and cleanup on eject.
 
 ## Testing/Demo
 If you would like to test UiForge out, you can build the test application by running:
 ```
 .\build_uiforge.bat testd3d11
 ```
-This will produce `test_d3d11_window.exe` in the `bin` directory. At that point, run `test_d3d11_window.exe`
-then start uiforge targeting the test window:
+This produces `test_d3d11_window.exe` in the `bin` directory. Run it, then start UiForge targeting the test window:
 ```
 .\UiForge.exe -n test_d3d11_window.exe
 ```
@@ -124,19 +271,9 @@ And there you go! Now you can mess around with UiForge in the test app.
 
 Examples are incoming -- currently working on a project that will be using this!
 
-## Roadmap
-The current implementation is what I would call a rough draft or proof of concept to show that it can be done and to get my other project off the ground. Here are the remaining goal marks for the project. 
-- **v0.4.0** - Control (settings) panel fully implemented, allowing the user to enable/disable and load/unload/reload scripts. Also allows scripts to register a settings callback to expose values/settings for the user to configure. Also display debug information abotu the scripts (e.g. time to execute, memory used, etc.).
-
-- **v0.5.0** - Add a basic in-app lua editor, allowing you to edit scripts, create new scripts, and run the scripts in whatever app UiForge is injected into. Attempt to "sandbox" this enough as to prevent crashing the application if something goes wrong.
-
-- **v0.6.0** - Add support for DirectX12, Vulkan, and OpenGL.
-
-- **v1.0.0** - Everything is nice and polished! All systems functioning adequately, code/commenting styling consistent across all modules, common errors and bugs handled and logged appropriately, general code cleanup, documentation completed, etc.
-
 ## Contributing
 
-Contributions are welcome! I am very new to C++ (all my professional experience is in C) so I am open to suggestions, advice, or criticism that will help me improve. Currently the code is a hodgepodge of what I would call "C"-isms and "C++"-isms. I'd like to clean it up as I learn more about C++ and OOP. 
+Contributions are welcome! I am very new to C++ (all my professional experience is in C) so I am open to suggestions, advice, or criticism that will help me improve. Currently the code is a hodgepodge of what I would call "C"-isms and "C++"-isms. I'd like to clean it up as I learn more about C++ and OOP.
 
 Please open an issue or submit a pull request for any features or fixes you'd like to see.
 
@@ -146,12 +283,16 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE.txt) f
 
 ## Acknowledgements
 
-- **[Dear ImGui](https://github.com/ocornut/imgui)** - The graphics library 
+- **[Dear ImGui](https://github.com/ocornut/imgui)** - The graphics library
 - **[Kiero Library](https://github.com/Rebzzel/kiero)** - Graphics API hooking library
 - **[MinHook](https://github.com/TsudaKageyu/minhook)** - Used by Kiero for hooking
 - **[Sol2](https://github.com/ThePhD/sol2)** - C++/Lua binding library
+- **[LuaJIT](https://luajit.org/)** - Just-in-time Lua interpreter
+- **[DirectXTK](https://github.com/microsoft/DirectXTK)** - WIC texture loading (D3D11)
+- **[FTXUI](https://github.com/ArthurSonzogni/FTXUI)** - Terminal UI for the injector
 - **[plog](https://github.com/SergiusTheBest/plog)** - Logging framework
 - **[SCL](https://github.com/WizardCarter/simple-config-library)** - config library
+- **[serpent](https://github.com/pkulchenko/serpent)** - Lua serializer used for profiles
 - **[sol2_ImGui-Bindings](https://github.com/Fesmaster/sol2_ImGui_Bindings)** - Original bindings I pulled from. I have forked the repo and made changes. The changes can be found at https://github.com/mmvest/sol2_ImGui_Bindings.
 
 ## Disclaimer

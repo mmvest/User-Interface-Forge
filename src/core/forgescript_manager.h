@@ -185,10 +185,37 @@ class ForgeScript
 
         /**
          * @brief Retrieve the hash value of the file contents of the Lua script file.
-         * 
+         *
          * @return The hash value of the file contents as a size_t.
          */
         std::size_t GetHash();
+
+        /**
+         * @brief Marks this script as a packaged script living in its own subdirectory.
+         *
+         * A packaged script is a script directory dropped into the scripts folder
+         * (e.g. "scripts\\my_mod\\my_mod.lua"). If the package directory contains a
+         * "modules" folder, that folder is prepended to package.path while the script
+         * runs so its local require() calls resolve locally before the shared modules
+         * directory. If it contains a "resources" folder, relative resource paths
+         * (e.g. UiForge.LoadTexture) are resolved against it before the shared
+         * resources directory.
+         *
+         * @param directory_path Full path to the script's package directory.
+         */
+        void SetPackageDirectory(const std::string& directory_path);
+
+        /**
+         * @brief Returns the package's local modules directory, or "" when the script
+         * is not packaged or the package has no modules folder.
+         */
+        std::string GetPackageModulesDir() const;
+
+        /**
+         * @brief Returns the package's local resources directory, or "" when the script
+         * is not packaged or the package has no resources folder.
+         */
+        std::string GetPackageResourcesDir() const;
 
         /**
          * @brief Determines if two ForgeScripts are the same by comparing their file names and the hash of their contents.
@@ -248,6 +275,10 @@ class ForgeScript
         std::string file_contents;                  // The contents of the script
         std::size_t hash;                           // hash of the contents, for quick comparison
 
+        std::string package_dir;                    // Root directory of a packaged script ("" for loose scripts)
+        std::string package_modules_dir;            // "<package_dir>\modules" when it exists, else ""
+        std::string package_resources_dir;          // "<package_dir>\resources" when it exists, else ""
+
         int env_ref = LUA_NOREF;                    // Registry ref to this script's isolated environment table
         std::filesystem::file_time_type loaded_write_time{};     // Write time of the file when contents were last loaded
         std::filesystem::file_time_type observed_write_time{};   // Most recently observed write time on disk
@@ -280,20 +311,29 @@ class ForgeScriptManager
     public:
         /**
          * @brief Constructs a ForgeScriptManager instance and loads all scripts from the specified directory.
-         * 
+         *
+         * Discovers both loose .lua files sitting directly in the scripts directory and
+         * packaged scripts living in their own subdirectory (see RefreshScripts()).
+         *
          * @param directory_path The path to the directory containing Lua scripts.
          * @param uif_lua_state A pointer to the Lua state used for script execution.
+         * @param excluded_subdirs Names of subdirectories that must never be treated as
+         * script packages (e.g. the shared modules, resources, and profiles directories).
+         * Compared case-insensitively.
          * @throws std::runtime_error If the Lua state is null or invalid.
          */
-        ForgeScriptManager(std::string directory_path, lua_State* uif_lua_state);
+        ForgeScriptManager(std::string directory_path, lua_State* uif_lua_state,
+                           std::vector<std::string> excluded_subdirs = {});
 
         /**
          * @brief Adds a new Lua script to the manager.
-         * 
+         *
          * @param file_name The full path to the Lua script file to add.
+         * @param package_dir Full path to the script's package directory when the script
+         * is a packaged script, or "" (the default) for a loose script.
          * @note If the script fails to load, an error is logged, and the script is not added.
          */
-        void AddScript(const std::string file_name);
+        void AddScript(const std::string file_name, const std::string package_dir = std::string());
 
         /**
          * @brief Removes a Lua script from the manager by its file name.
@@ -462,8 +502,36 @@ class ForgeScriptManager
 
         /**
          * @brief Scans the scripts directory for new scripts and adds any that aren't already loaded.
+         *
+         * Two kinds of scripts are discovered:
+         * - Loose scripts: .lua files sitting directly in the scripts directory.
+         * - Packaged scripts: a subdirectory containing an entry script named after the
+         *   directory ("<dir>\\<dir>.lua"), or "main.lua" / "init.lua" as fallbacks. The
+         *   package may optionally contain its own "modules" and "resources" folders,
+         *   which take priority over the shared directories for that script.
+         *
+         * Subdirectories listed in the excluded set passed to the constructor (the shared
+         * modules/resources/profiles directories) are never treated as packages.
          */
         void RefreshScripts();
+
+        /**
+         * @brief Returns the script currently being executed by the manager, or nullptr.
+         *
+         * Set while a script's main chunk runs inside RunScripts() and while a settings
+         * callback runs via RunSettingsCallback(). Used to resolve per-script resources.
+         */
+        ForgeScript* GetCurrentlyExecutingScript() const;
+
+        /**
+         * @brief Runs a script's settings callback with the manager's currently
+         * executing script context set, so per-script resource resolution and callback
+         * registration work from inside settings callbacks too.
+         *
+         * @param script The script whose settings callback should run. No-op when null.
+         * @throws std::runtime_error Propagated from the settings callback on failure.
+         */
+        void RunSettingsCallback(ForgeScript* script);
 
         /**
          * @brief Retrieve the debug stats of all scripts managed by the script manager and update the managers debug info with it.
@@ -555,6 +623,7 @@ class ForgeScriptManager
 
         lua_State* uif_lua_state;                           // The lua state for the ForgeScripts to use when running
         std::string scripts_path;                           // The full path to the lua scripts that will be made into ForgeScript objects
+        std::vector<std::string> excluded_subdirs;          // Lowercased names of scripts subdirectories that are never script packages
         std::string profiles_path;                          // The full path to the directory holding profile files
         std::string current_profile_name;                   // Name of the most recently saved/applied profile ("" if none)
 

@@ -24,4 +24,8 @@ Doxyfile
 # Ignore the build directory
 bin/
 
+# Ignore profiles created by UiForge that I may or may not be too lazy to cleanup
 scripts/profiles/
+
+# Ignore release packages produced by create-package
+releases/

@@ -555,7 +555,23 @@ namespace
 
 BOOL IsDllLoadedInProcess(DWORD pid, const wchar_t* target_dll_path)
 {
-    HANDLE dll_list_snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
+    // CreateToolhelp32Snapshot with TH32CS_SNAPMODULE can transiently fail with ERROR_BAD_LENGTH
+    // while the target is still loading its modules. MSDN says to retry until it succeeds.
+    HANDLE dll_list_snapshot = INVALID_HANDLE_VALUE;
+    for (int attempt = 0; attempt < 10; ++attempt)
+    {
+        dll_list_snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
+        if (dll_list_snapshot != INVALID_HANDLE_VALUE)
+        {
+            break;
+        }
+        if (GetLastError() != ERROR_BAD_LENGTH)
+        {
+            break;
+        }
+        Sleep(25);
+    }
+
     MODULEENTRY32W current_dll = { 0 };
     current_dll.dwSize = sizeof(MODULEENTRY32W);
 
@@ -563,6 +579,7 @@ BOOL IsDllLoadedInProcess(DWORD pid, const wchar_t* target_dll_path)
 
     if (dll_list_snapshot == INVALID_HANDLE_VALUE)
     {
+        // Genuine failure: fail safe by reporting "loaded" so we don't risk a double-injection.
         PLOG_ERROR << L"CreateToolhelp32Snapshot failed to retrieve dll list snapshot. Error: "
            << _wcserror(GetLastError())
            << L" (0x"
@@ -857,8 +874,8 @@ int wmain(int argc, wchar_t** argv)
     auto exit_button = ftxui::Button("[ Exit ]", [&]() { screen.Exit(); }, ftxui::ButtonOption::Animated());
 
     auto root = ftxui::Container::Vertical({
-        ftxui::Maybe(menu, [&]() { return ui_mode.load() == UiMode::Select && candidates.size() >= 2; }),
-        ftxui::Maybe(inject_button, [&]() { return ui_mode.load() == UiMode::Select && candidates.size() >= 2; }),
+        ftxui::Maybe(menu, [&]() { return ui_mode.load() == UiMode::Select && candidates.size() >= 1; }),
+        ftxui::Maybe(inject_button, [&]() { return ui_mode.load() == UiMode::Select && candidates.size() >= 1; }),
         ftxui::Maybe(exit_button, [&]() { return ui_mode.load() == UiMode::Done; }),
     });
 
@@ -944,7 +961,7 @@ int wmain(int argc, wchar_t** argv)
                 exit_button->Render() | center,
             });
         }
-        else if (show_select && candidates.size() >= 2)
+        else if (show_select && candidates.size() >= 1)
         {
             std::string target = target_process_name ? WideToUtf8(target_process_name) : "(pid)";
             auto instructions = paragraph("↑/↓: move   Space: toggle   Tab: switch focus   Enter: activate   Esc: cancel") | dim | center;
@@ -1010,10 +1027,13 @@ int wmain(int argc, wchar_t** argv)
                border;
     });
 
-    // Auto behavior:
+    // Behavior:
     // - 0 matches: message + exit
-    // - 1 match: auto-inject (no selector UI)
-    // - 2+ matches: selector UI
+    // - explicit PID: auto-inject (the user named the exact process)
+    // - 1 exact-name match: auto-inject
+    // - a lone fuzzy (substring/edit-distance) match, or 2+ matches: selector UI, so the user
+    //   confirms before we inject into something a typo happened to match
+    const bool single_exact_match = (candidates.size() == 1 && candidates[0].match_rank == 0);
     if (candidates.empty())
     {
         {
@@ -1022,15 +1042,7 @@ int wmain(int argc, wchar_t** argv)
         }
         ui_mode.store(UiMode::Done);
     }
-    else if (candidates.size() == 1)
-    {
-        selected[0] = true;
-        rebuild_menu_entries();
-        ui_mode.store(UiMode::Injecting);
-        screen.PostEvent(ftxui::Event::Custom);
-        start_injection();
-    }
-    else if (is_using_pid)
+    else if (is_using_pid || single_exact_match)
     {
         selected[0] = true;
         rebuild_menu_entries();

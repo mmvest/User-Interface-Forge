@@ -350,7 +350,9 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
                     {
                         try
                         {
-                            selected_script->RunSettingsCallback();
+                            // Run through the manager so the currently executing script
+                            // context is set for per-script resource resolution.
+                            script_manager.RunSettingsCallback(selected_script);
                         }
                         catch(const std::exception& err)
                         {

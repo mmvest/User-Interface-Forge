@@ -169,8 +169,27 @@ void ForgeScript::Run(lua_State* curr_lua_state)
     lua_rawgeti(curr_lua_state, LUA_REGISTRYINDEX, env_ref); // push env
     lua_setfenv(curr_lua_state, -2);                         // set env
 
+    // Packaged scripts get their own modules folder prepended to package.path for the
+    // duration of this run, so their local require() calls resolve locally before the
+    // shared modules directory. The original path is restored afterwards so loose
+    // scripts and other packages are unaffected.
+    sol::state_view lua(curr_lua_state);
+    std::string saved_package_path;
+    const bool swap_package_path = !package_modules_dir.empty();
+    if (swap_package_path)
+    {
+        saved_package_path = lua["package"]["path"].get<std::string>();
+        lua["package"]["path"] = package_modules_dir + "\\?.lua;" + package_modules_dir + "\\?\\?.lua;" + saved_package_path;
+    }
+
     start_time = std::chrono::steady_clock::now();
     int call_result = lua_pcall(curr_lua_state, 0, 0,  0);
+
+    if (swap_package_path)
+    {
+        lua["package"]["path"] = saved_package_path;
+    }
+
     if(call_result != LUA_OK)
     {
         const char* lua_error = lua_tostring(curr_lua_state, -1);
@@ -453,6 +472,43 @@ std::size_t ForgeScript::GetHash()
     return hash;
 }
 
+void ForgeScript::SetPackageDirectory(const std::string& directory_path)
+{
+    package_dir = directory_path;
+    package_modules_dir.clear();
+    package_resources_dir.clear();
+
+    if (package_dir.empty())
+    {
+        return;
+    }
+
+    // Resolve the optional local modules/resources folders once, up front, so the
+    // per-frame Run() path never has to touch the filesystem.
+    std::error_code ec;
+    const std::filesystem::path modules_candidate = std::filesystem::path(package_dir) / "modules";
+    if (std::filesystem::is_directory(modules_candidate, ec))
+    {
+        package_modules_dir = modules_candidate.string();
+    }
+
+    const std::filesystem::path resources_candidate = std::filesystem::path(package_dir) / "resources";
+    if (std::filesystem::is_directory(resources_candidate, ec))
+    {
+        package_resources_dir = resources_candidate.string();
+    }
+}
+
+std::string ForgeScript::GetPackageModulesDir() const
+{
+    return package_modules_dir;
+}
+
+std::string ForgeScript::GetPackageResourcesDir() const
+{
+    return package_resources_dir;
+}
+
 ForgeScript::~ForgeScript(){}
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -461,7 +517,44 @@ ForgeScript::~ForgeScript(){}
 
 #define FIND_SCRIPT_BY_NAME(name) [&name](const std::unique_ptr<ForgeScript>& script){ return script->GetFileName() == name;}
 
-ForgeScriptManager::ForgeScriptManager(std::string scripts_path, lua_State* uif_lua_state)
+static std::string ToLowerCopy(const std::string& value)
+{
+    std::string lowered = value;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lowered;
+}
+
+// A subdirectory of the scripts folder is a script package when it contains an entry
+// script directly inside it. The entry script is, in order of preference:
+// "<dir name>.lua", "main.lua", "init.lua". Returns the full path of the entry script,
+// or "" when the directory is not a package.
+static std::string FindPackageEntryScript(const std::filesystem::path& package_dir)
+{
+    const std::string dir_name = package_dir.filename().string();
+    const char* fallbacks[] = { "main.lua", "init.lua" };
+
+    std::error_code ec;
+    const std::filesystem::path named_entry = package_dir / (dir_name + ".lua");
+    if (std::filesystem::is_regular_file(named_entry, ec))
+    {
+        return named_entry.string();
+    }
+
+    for (const char* fallback : fallbacks)
+    {
+        const std::filesystem::path candidate = package_dir / fallback;
+        if (std::filesystem::is_regular_file(candidate, ec))
+        {
+            return candidate.string();
+        }
+    }
+
+    return std::string();
+}
+
+ForgeScriptManager::ForgeScriptManager(std::string scripts_path, lua_State* uif_lua_state,
+                                       std::vector<std::string> excluded_subdirs)
     : scripts_path(scripts_path), uif_lua_state(uif_lua_state), currently_executing_script(nullptr)
 {
     if(!uif_lua_state)
@@ -469,20 +562,28 @@ ForgeScriptManager::ForgeScriptManager(std::string scripts_path, lua_State* uif_
         throw std::runtime_error("Cannot construct ForgeScriptManager with null or invalid Lua State.");
     }
 
-    // Get all of the scripts from the directory and add them to the script vector
-    for(const auto& entry : std::filesystem::directory_iterator(scripts_path))
+    // Store lowercased so package discovery can compare case-insensitively.
+    this->excluded_subdirs.reserve(excluded_subdirs.size());
+    for (const auto& name : excluded_subdirs)
     {
-        if(!entry.is_regular_file()) continue;
-
-        if (entry.path().extension() == ".lua") AddScript(scripts_path + "\\" + entry.path().filename().string());
+        this->excluded_subdirs.push_back(ToLowerCopy(name));
     }
+
+    // Discover loose scripts and script packages. RefreshScripts holds the one true
+    // discovery logic; with no scripts loaded yet it simply adds everything it finds.
+    RefreshScripts();
 }
 
-void ForgeScriptManager::AddScript(const std::string file_name)
+void ForgeScriptManager::AddScript(const std::string file_name, const std::string package_dir)
 {
     try
     {
-        scripts.emplace_back(std::make_unique<ForgeScript>(file_name));
+        auto script = std::make_unique<ForgeScript>(file_name);
+        if (!package_dir.empty())
+        {
+            script->SetPackageDirectory(package_dir);
+        }
+        scripts.emplace_back(std::move(script));
     }
     catch(const std::exception& err)
     {
@@ -652,6 +753,57 @@ void ForgeScriptManager::RegisterCallback(ForgeScriptCallbackType type, sol::pro
     }
 }
 
+ForgeScript* ForgeScriptManager::GetCurrentlyExecutingScript() const
+{
+    return currently_executing_script;
+}
+
+void ForgeScriptManager::RunSettingsCallback(ForgeScript* script)
+{
+    if (!script)
+    {
+        return;
+    }
+
+    // Settings callbacks run from the UI, outside the RunScripts() loop, so the
+    // currently executing script has to be set here for per-script resource
+    // resolution and callback registration to work from inside them. A packaged
+    // script's local modules folder is also given package.path priority, matching
+    // the behavior of its main chunk.
+    ForgeScript* previous = currently_executing_script;
+    currently_executing_script = script;
+
+    sol::state_view lua(uif_lua_state);
+    std::string saved_package_path;
+    const std::string package_modules = script->GetPackageModulesDir();
+    const bool swap_package_path = !package_modules.empty();
+    if (swap_package_path)
+    {
+        saved_package_path = lua["package"]["path"].get<std::string>();
+        lua["package"]["path"] = package_modules + "\\?.lua;" + package_modules + "\\?\\?.lua;" + saved_package_path;
+    }
+
+    try
+    {
+        script->RunSettingsCallback();
+    }
+    catch (...)
+    {
+        if (swap_package_path)
+        {
+            lua["package"]["path"] = saved_package_path;
+        }
+        currently_executing_script = previous;
+        throw;
+    }
+
+    if (swap_package_path)
+    {
+        lua["package"]["path"] = saved_package_path;
+    }
+    currently_executing_script = previous;
+}
+
 ForgeScript* ForgeScriptManager::GetScript(const std::string file_name)
 {
     auto iter = std::find_if(scripts.begin(), scripts.end(), FIND_SCRIPT_BY_NAME(file_name));
@@ -692,7 +844,24 @@ void ForgeScriptManager::SetModulesDirectory(const std::string& directory_path)
 
 void ForgeScriptManager::PurgeUserModuleCache()
 {
-    if (modules_path.empty())
+    // User modules can live in the shared modules directory or in a packaged
+    // script's own modules folder; both are purged so hot reloads pick up edits
+    // to either kind.
+    std::vector<std::string> module_roots;
+    if (!modules_path.empty())
+    {
+        module_roots.push_back(modules_path);
+    }
+    for (const auto& script : scripts)
+    {
+        const std::string package_modules = script->GetPackageModulesDir();
+        if (!package_modules.empty())
+        {
+            module_roots.push_back(package_modules);
+        }
+    }
+
+    if (module_roots.empty())
     {
         return;
     }
@@ -716,18 +885,22 @@ void ForgeScriptManager::PurgeUserModuleCache()
 
         // Resolve the module name the same way require() does with our package.path
         // patterns ("<modules>\?.lua" and "<modules>\?\?.lua"): dots become path
-        // separators. Only names backed by a real file under the modules directory
+        // separators. Only names backed by a real file under one of the module roots
         // are user modules; everything else (built-ins, embedded serpent) is kept.
         std::string relative = entry.first.as<std::string>();
         std::replace(relative.begin(), relative.end(), '.', '\\');
 
-        const std::filesystem::path direct = std::filesystem::path(modules_path) / (relative + ".lua");
-        const std::filesystem::path nested = std::filesystem::path(modules_path) / relative / (relative + ".lua");
-
-        std::error_code ec;
-        if (std::filesystem::exists(direct, ec) || std::filesystem::exists(nested, ec))
+        for (const auto& root : module_roots)
         {
-            to_purge.push_back(entry.first.as<std::string>());
+            const std::filesystem::path direct = std::filesystem::path(root) / (relative + ".lua");
+            const std::filesystem::path nested = std::filesystem::path(root) / relative / (relative + ".lua");
+
+            std::error_code ec;
+            if (std::filesystem::exists(direct, ec) || std::filesystem::exists(nested, ec))
+            {
+                to_purge.push_back(entry.first.as<std::string>());
+                break;
+            }
         }
     }
 
@@ -1281,6 +1454,9 @@ void ForgeScriptManager::RunOnEjectCallbacks()
 
 void ForgeScriptManager::RefreshScripts()
 {
+    // Scripts are identified by file name (not full path) here so a packaged script's
+    // entry file and a loose script with the same name cannot both be loaded -- profiles
+    // key per-script state by file name, so duplicates would collide anyway.
     std::unordered_set<std::string> known_names;
     known_names.reserve(scripts.size());
 
@@ -1291,14 +1467,42 @@ void ForgeScriptManager::RefreshScripts()
 
     for (const auto& entry : std::filesystem::directory_iterator(scripts_path))
     {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() != ".lua") continue;
+        if (entry.is_regular_file())
+        {
+            // Loose script: a .lua file sitting directly in the scripts directory.
+            if (entry.path().extension() != ".lua") continue;
 
-        const std::string name = entry.path().filename().string();
-        if (known_names.find(name) != known_names.end()) continue;
+            const std::string name = entry.path().filename().string();
+            if (known_names.find(name) != known_names.end()) continue;
 
-        AddScript(scripts_path + "\\" + name);
-        known_names.emplace(name);
+            AddScript(scripts_path + "\\" + name);
+            known_names.emplace(name);
+        }
+        else if (entry.is_directory())
+        {
+            // Script package: a subdirectory with an entry script inside it. The shared
+            // modules/resources/profiles directories are excluded from consideration.
+            const std::string dir_name = entry.path().filename().string();
+            const std::string dir_name_lower = ToLowerCopy(dir_name);
+            if (std::find(excluded_subdirs.begin(), excluded_subdirs.end(), dir_name_lower) != excluded_subdirs.end())
+            {
+                continue;
+            }
+
+            const std::string entry_script = FindPackageEntryScript(entry.path());
+            if (entry_script.empty()) continue;
+
+            const std::string name = std::filesystem::path(entry_script).filename().string();
+            if (known_names.find(name) != known_names.end())
+            {
+                PLOG_WARNING << "Skipping script package " << entry.path().string()
+                             << ": a script named " << name << " is already loaded.";
+                continue;
+            }
+
+            AddScript(entry_script, entry.path().string());
+            known_names.emplace(name);
+        }
     }
 }
 

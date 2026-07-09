@@ -1,6 +1,6 @@
 /**
  * @file core.cpp
- * @version 0.3.3
+ * @version 1.0.0
  * @brief DLL for injecting into a target process to hook graphics API and display ImGUI windows.
  * 
  * This file defines a dynamic-link library (DLL) that is designed to be injected into a target 
@@ -20,7 +20,9 @@
  *          modules from trusted sources, and only those that you KNOW are not malicious.
  * 
  * @author  mmvest (wereox)
- * @date    2025-01-13 (version 0.3.3)
+ * @date    2026-07-09 (version 1.0.0)
+ *
+ *          2025-01-13 (version 0.3.3)
  * 
  *          2025-01-02 (version 0.3.2)
  *  
@@ -103,6 +105,7 @@ kiero::Status::Enum kiero_is_bound = kiero::Status::UnknownError;               
 IGraphicsApi* graphics_api;
 UiManager* ui_manager;
 ForgeScriptManager* script_manager;
+bool imgui_impl_initialized = false;    // True only once the graphics-API ImGui backend has been initialized
 
 // Settings
 std::string config_parent_dir;
@@ -352,6 +355,7 @@ void OnGraphicsApiInvoke(void* params)
             {
                 throw std::runtime_error("Failed to initialize Graphics API ImGui Implementation.");
             }
+            imgui_impl_initialized = true;
 
             if (!settings_icon_file.empty())
             {
@@ -405,7 +409,7 @@ void LoadConfiguration()
     char path_to_dll[MAX_PATH];
     if(!GetModuleFileNameA(core_module_handle, path_to_dll, MAX_PATH))
     {
-        throw std::runtime_error(std::string("Failed to get module file name. Error: " + GetLastError()));
+        throw std::runtime_error("Failed to get module file name. Error: " + std::to_string(GetLastError()));
     }
     uiforge_root_dir = std::filesystem::path(path_to_dll).parent_path().parent_path().string();
 
@@ -444,7 +448,8 @@ void LoadConfiguration()
 
     reload_on_save = GET_CONFIG_VAL(config_parent_dir, unsigned int, "RELOAD_ON_SAVE");
     reload_on_save_poll_ms = GET_CONFIG_VAL(config_parent_dir, unsigned int, "RELOAD_ON_SAVE_POLL_MS");
-    if (reload_on_save_poll_ms < 0) reload_on_save_poll_ms = 2500;
+    // Guard against a missing/zero/garbage poll interval and fall back to a sane default.
+    if (reload_on_save_poll_ms <= 0) reload_on_save_poll_ms = 2500;
 
     settings_icon_file = GET_CONFIG_VAL(config_parent_dir, std::string, "SETTINGS_ICON_FILE");
 
@@ -513,7 +518,14 @@ void InitializeLua()
 
     luaL_openlibs(uif_lua_state);
     
-    script_manager = new ForgeScriptManager(uiforge_scripts_dir, uif_lua_state);
+    // The shared modules/resources/profiles directories live inside the scripts
+    // directory and must never be mistaken for script packages during discovery.
+    script_manager = new ForgeScriptManager(uiforge_scripts_dir, uif_lua_state,
+        {
+            std::filesystem::path(uiforge_modules_dir).filename().string(),
+            std::filesystem::path(uiforge_resources_dir).filename().string(),
+            std::filesystem::path(uiforge_profiles_dir).filename().string()
+        });
     PLOG_DEBUG << "ForgeScriptManager created";
     script_manager->SetReloadOnSave(reload_on_save != 0, reload_on_save_poll_ms);
     script_manager->SetProfilesDirectory(uiforge_profiles_dir);
@@ -594,7 +606,29 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
         std::filesystem::path texture_path(path);
         if (texture_path.is_relative())
         {
-            texture_path = std::filesystem::path(uiforge_resources_dir) / texture_path;
+            // Packaged scripts resolve relative paths against their own resources
+            // folder first, then fall back to the shared resources directory.
+            bool resolved_locally = false;
+            if (script_manager)
+            {
+                ForgeScript* current_script = script_manager->GetCurrentlyExecutingScript();
+                if (current_script && !current_script->GetPackageResourcesDir().empty())
+                {
+                    const std::filesystem::path local_path =
+                        std::filesystem::path(current_script->GetPackageResourcesDir()) / texture_path;
+                    std::error_code ec;
+                    if (std::filesystem::exists(local_path, ec))
+                    {
+                        texture_path = local_path;
+                        resolved_locally = true;
+                    }
+                }
+            }
+
+            if (!resolved_locally)
+            {
+                texture_path = std::filesystem::path(uiforge_resources_dir) / texture_path;
+            }
         }
 
         return IGraphicsApi::CreateTextureFromFile(texture_path.wstring());
@@ -729,10 +763,11 @@ void CleanupUiForge()
             settings_icon = nullptr;
         }
 
-        if(graphics_api)
+        if(graphics_api && imgui_impl_initialized)
         {
             PLOG_INFO << "Shutting down imgui graphics api implementation...";
             graphics_api->ShutdownImGuiImpl();
+            imgui_impl_initialized = false;
         }
 
         if(ui_manager)
