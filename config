@@ -24,10 +24,7 @@ SETTINGS_ICON_SIZE_Y=48
 # Which graphics API to hook in the target process. Must be one of: auto, d3d11, d3d12
 # "auto" detects the API by checking which runtime DLLs the target process has loaded
 # (d3d12 is preferred when both are present). Set an explicit value to override detection.
-GRAPHICS_API=auto
-
-# Unused
-BITS=64
+GRAPHICS_API=d3d11
 
 # Logging -- levels are none = 0, fatal = 1, error = 2, warning = 3, info = 4, debug = 5, verbose = 6
 MAX_LOG_SIZE_BYTES=1000000

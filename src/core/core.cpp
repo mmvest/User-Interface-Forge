@@ -58,6 +58,7 @@
 #include <unknwn.h>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 #include <sol_ImGui.h>
 #include <kiero.h>
@@ -68,6 +69,7 @@
 #include <sol/sol.hpp>
 
 #include "core\util.h"
+#include "core\audio_manager.h"
 #include "core\graphics_api.h"
 #include "core\forgescript_manager.h"
 #include "core\serpent.h"
@@ -135,9 +137,26 @@ std::string uiforge_modules_dir;
 std::string uiforge_resources_dir;
 std::string uiforge_profiles_dir;
 
+// Fonts loaded through UiForge.LoadFont, keyed by "<resolved path>|<size>" so repeat
+// loads (multiple mods, per-frame settings callbacks) reuse the same ImFont.
+static std::unordered_map<std::string, ImFont*> loaded_fonts;
+
 // For cleanup
 std::atomic<HMODULE> core_module_handle(NULL);  // I actually don't think this needs to be atomic?
 std::atomic<bool> needs_cleanup(false);
+
+/**
+ * @brief IM_ASSERT handler installed through compat\uiforge_imconfig.h.
+ *
+ * Logs the failed assertion and throws so the failure unwinds to the per-script
+ * or per-frame catch instead of aborting the host process.
+ */
+[[noreturn]] void UiForgeImGuiAssertFail(const char* expression, const char* file, int line)
+{
+    std::string message = std::string("ImGui assertion failed: (") + expression + ") at " + file + ":" + std::to_string(line);
+    PLOG_ERROR << message;
+    throw std::runtime_error(message);
+}
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                               Main Functions                              ║
@@ -382,9 +401,27 @@ void OnGraphicsApiInvoke(void* params)
     graphics_api->UpdateRenderTarget(params);
     ui_manager->UpdateTargetWindow(graphics_api->target_window);
 
-    graphics_api->NewFrame();
-    ui_manager->RenderUiElements(*script_manager, settings_icon);
-    graphics_api->Render();
+    // A thrown IM_ASSERT (see UiForgeImGuiAssertFail) can abort the frame anywhere.
+    // Catch it here, close out the ImGui frame, and skip rendering rather than
+    // letting the exception escape into the host's Present call.
+    try
+    {
+        graphics_api->NewFrame();
+        ui_manager->RenderUiElements(*script_manager, settings_icon);
+        graphics_api->Render();
+    }
+    catch (const std::exception& err)
+    {
+        PLOG_ERROR << "Frame aborted: " << err.what();
+        try
+        {
+            if (ImGui::GetCurrentContext() && ImGui::GetFrameCount() > 0)
+            {
+                ImGui::EndFrame();
+            }
+        }
+        catch (...) {}
+    }
 
     CoreUtils::ProcessCustomInputs(graphics_api->target_window);  // Put this here so it will return straight into calling the original Graphics API function
     return;
@@ -551,6 +588,42 @@ void InitializeLua()
 
 
 /**
+ * @brief Resolves a script-supplied resource path to a full filesystem path.
+ *
+ * Relative paths are resolved against the currently executing packaged script's own
+ * resources folder first (when it exists there), then fall back to the shared
+ * resources directory. Absolute paths are returned unchanged.
+ *
+ * @param path The path as provided by the Lua script.
+ * @return The resolved filesystem path.
+ */
+static std::filesystem::path ResolveResourcePath(const std::string& path)
+{
+    std::filesystem::path resource_path(path);
+    if (!resource_path.is_relative())
+    {
+        return resource_path;
+    }
+
+    if (script_manager)
+    {
+        ForgeScript* current_script = script_manager->GetCurrentlyExecutingScript();
+        if (current_script && !current_script->GetPackageResourcesDir().empty())
+        {
+            const std::filesystem::path local_path =
+                std::filesystem::path(current_script->GetPackageResourcesDir()) / resource_path;
+            std::error_code ec;
+            if (std::filesystem::exists(local_path, ec))
+            {
+                return local_path;
+            }
+        }
+    }
+
+    return std::filesystem::path(uiforge_resources_dir) / resource_path;
+}
+
+/**
  * @brief Initializes UiForge-specific Lua bindings.
  *
  * Sets up the Lua environment for UiForge, including global variables and 
@@ -603,35 +676,56 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
             return nullptr;
         }
 
-        std::filesystem::path texture_path(path);
-        if (texture_path.is_relative())
-        {
-            // Packaged scripts resolve relative paths against their own resources
-            // folder first, then fall back to the shared resources directory.
-            bool resolved_locally = false;
-            if (script_manager)
-            {
-                ForgeScript* current_script = script_manager->GetCurrentlyExecutingScript();
-                if (current_script && !current_script->GetPackageResourcesDir().empty())
-                {
-                    const std::filesystem::path local_path =
-                        std::filesystem::path(current_script->GetPackageResourcesDir()) / texture_path;
-                    std::error_code ec;
-                    if (std::filesystem::exists(local_path, ec))
-                    {
-                        texture_path = local_path;
-                        resolved_locally = true;
-                    }
-                }
-            }
+        return IGraphicsApi::CreateTextureFromFile(ResolveResourcePath(path).wstring());
+    };
 
-            if (!resolved_locally)
-            {
-                texture_path = std::filesystem::path(uiforge_resources_dir) / texture_path;
-            }
+    // Loads a TTF/OTF font for use with ImGui.PushFont. Relative paths resolve the same
+    // way as LoadTexture (package resources folder first, then shared resources). Size is
+    // in pixels; pass nothing (or 0) to use ImGui's default size and size it at PushFont
+    // time. On any failure the default font is returned so PushFont is always safe.
+    lua.new_usertype<ImFont>("ImFont", sol::no_constructor);
+    uiforge_table["LoadFont"] = [](const std::string& path, sol::optional<float> size_px) -> ImFont*
+    {
+        if (!ImGui::GetCurrentContext())
+        {
+            PLOG_WARNING << "LoadFont called before ImGui was initialized: " << path;
+            return nullptr;
         }
 
-        return IGraphicsApi::CreateTextureFromFile(texture_path.wstring());
+        ImGuiIO& io = ImGui::GetIO();
+        ImFont* fallback = io.FontDefault ? io.FontDefault
+                         : (io.Fonts->Fonts.empty() ? nullptr : io.Fonts->Fonts[0]);
+
+        const float size = (size_px && *size_px > 0.0f) ? *size_px : 0.0f;
+        const std::filesystem::path font_path = ResolveResourcePath(path);
+        const std::string cache_key = font_path.string() + "|" + std::to_string(size);
+
+        auto cached = loaded_fonts.find(cache_key);
+        if (cached != loaded_fonts.end())
+        {
+            return cached->second;
+        }
+
+        std::error_code ec;
+        if (!std::filesystem::exists(font_path, ec))
+        {
+            PLOG_WARNING << "LoadFont could not find \"" << font_path.string() << "\". Falling back to the default font.";
+            return fallback;
+        }
+
+        // NoLoadError keeps a bad file from tripping ImGui's assert path.
+        ImFontConfig font_config;
+        font_config.Flags |= ImFontFlags_NoLoadError;
+        ImFont* font = io.Fonts->AddFontFromFileTTF(font_path.string().c_str(), size, &font_config);
+        if (!font)
+        {
+            PLOG_WARNING << "LoadFont failed to load \"" << font_path.string() << "\". Falling back to the default font.";
+            return fallback;
+        }
+
+        PLOG_DEBUG << "Loaded font \"" << font_path.string() << "\" at size " << size;
+        loaded_fonts[cache_key] = font;
+        return font;
     };
 
     // Creates a texture from raw 32-bit RGBA pixel bytes (row-major, no row padding).
@@ -664,6 +758,71 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
             return;
         }
         IGraphicsApi::ReleaseTexture(texture);
+    };
+
+    // Loads a sound file (mp3 or wav) for playback. Relative paths resolve the same way
+    // as LoadTexture/LoadFont. Returns a sound handle, or nil when the file is missing
+    // or cannot be opened. Repeat loads of the same file return the same handle.
+    uiforge_table["LoadSound"] = [](const std::string& path) -> sol::optional<int>
+    {
+        const std::filesystem::path sound_path = ResolveResourcePath(path);
+
+        std::error_code ec;
+        if (!std::filesystem::exists(sound_path, ec))
+        {
+            PLOG_WARNING << "LoadSound could not find \"" << sound_path.string() << "\".";
+            return sol::nullopt;
+        }
+
+        const int sound_id = AudioManager::Load(sound_path.wstring());
+        if (sound_id == 0)
+        {
+            return sol::nullopt;
+        }
+        return sound_id;
+    };
+
+    // Plays a loaded sound from the beginning. Options table supports volume (0.0 to 1.0,
+    // default 1.0) and loop (default false). All sound functions are nil-safe no-ops when
+    // given a nil handle, so a failed LoadSound never breaks a script.
+    uiforge_table["PlaySound"] = [](sol::optional<int> sound_id, sol::optional<sol::table> options) -> bool
+    {
+        if (!sound_id)
+        {
+            return false;
+        }
+
+        double volume = 1.0;
+        bool loop = false;
+        if (options)
+        {
+            volume = options->get_or("volume", 1.0);
+            loop = options->get_or("loop", false);
+        }
+        return AudioManager::Play(*sound_id, volume, loop);
+    };
+
+    uiforge_table["StopSound"] = [](sol::optional<int> sound_id) -> bool
+    {
+        return sound_id ? AudioManager::Stop(*sound_id) : false;
+    };
+
+    uiforge_table["IsSoundPlaying"] = [](sol::optional<int> sound_id) -> bool
+    {
+        return sound_id ? AudioManager::IsPlaying(*sound_id) : false;
+    };
+
+    uiforge_table["SetSoundVolume"] = [](sol::optional<int> sound_id, double volume) -> bool
+    {
+        return sound_id ? AudioManager::SetVolume(*sound_id, volume) : false;
+    };
+
+    uiforge_table["ReleaseSound"] = [](sol::optional<int> sound_id)
+    {
+        if (sound_id)
+        {
+            AudioManager::Release(*sound_id);
+        }
     };
 
     // ForgeScriptManager Bindings
@@ -756,6 +915,12 @@ void CleanupUiForge()
             PLOG_DEBUG << "Setting state to nullptr...";
             uif_lua_state = nullptr;
         }
+
+        // Font pointers are owned by the ImGui context and die with it below.
+        loaded_fonts.clear();
+
+        PLOG_INFO << "Releasing sounds...";
+        AudioManager::ReleaseAll();
 
         if (settings_icon && IGraphicsApi::ReleaseTexture)
         {

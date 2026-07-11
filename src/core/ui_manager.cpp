@@ -68,6 +68,13 @@ void UiManager::InitializeImGui()
     
     io.ConfigFlags = ImGuiConfigFlags_NoMouseCursorChange;
 
+    // Recover from recoverable ImGui usage errors (mismatched Begin/End, Push/Pop leaks)
+    // instead of asserting. An assert would abort the whole host process.
+    io.ConfigErrorRecovery               = true;
+    io.ConfigErrorRecoveryEnableAssert   = false;
+    io.ConfigErrorRecoveryEnableDebugLog = true;
+    io.ConfigErrorRecoveryEnableTooltip  = true;
+
     // Prefer the top-level/root HWND for proper IME/text handling.
     if(!ImGui_ImplWin32_Init(root_window)) throw std::runtime_error("Unable to initialize ImGui Win32 Implementation.");
 }

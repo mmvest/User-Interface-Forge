@@ -68,7 +68,12 @@ set LINK_D3D11=d3d11.lib dxgi.lib d3dcompiler.lib
 set LINK_D3D12=d3d12.lib
 set LINK_IMGUI_WIN32=user32.lib gdi32.lib imm32.lib
 set LINK_WIC=ole32.lib windowscodecs.lib
-set LINK_GRAPHICS=%LINK_D3D11% %LINK_D3D12% %LINK_IMGUI_WIN32% %LINK_WIC%
+set LINK_AUDIO=winmm.lib
+set LINK_GRAPHICS=%LINK_D3D11% %LINK_D3D12% %LINK_IMGUI_WIN32% %LINK_WIC% %LINK_AUDIO%
+
+@REM Custom ImGui config: routes IM_ASSERT to a logged exception instead of aborting the
+@REM host process. Must be defined identically for the ImGui objects and the core.
+set IMGUI_CONFIG_DEFINE=/DIMGUI_USER_CONFIG=\"compat/uiforge_imconfig.h\"
 
 @REM Injector linking
 set LINK_FTXUI="%FTXUI_LIB%"
@@ -237,8 +242,8 @@ if "%BUILD_CORE%"=="true" (
     if not exist "%OBJ_DIR_EXTERNALS%\directxtk" mkdir "%OBJ_DIR_EXTERNALS%\directxtk"
 
     @REM ImGui
-    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO ^
-        /I"%IMGUI_DIR%" /I"%IMGUI_DIR%\misc\cpp" ^
+    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %IMGUI_CONFIG_DEFINE% ^
+        /I"%IMGUI_DIR%" /I"%IMGUI_DIR%\misc\cpp" /I"%SRC_DIR%" ^
         /Fo"%OBJ_DIR_EXTERNALS%\imgui\\" ^
         "%IMGUI_DIR%\imgui.cpp" "%IMGUI_DIR%\imgui_draw.cpp" "%IMGUI_DIR%\imgui_tables.cpp" "%IMGUI_DIR%\imgui_widgets.cpp" ^
         "%IMGUI_DIR%\misc\cpp\imgui_stdlib.cpp" ^
@@ -280,7 +285,7 @@ if "%BUILD_CORE%"=="true" (
 
     echo Building Core
     if not exist %OBJ_DIR_CORE% mkdir %OBJ_DIR_CORE%
-    cl /nologo /bigobj /EHsc /Bt+ /MP %RUNTIME% /Zi /LD /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %CSTD% ^
+    cl /nologo /bigobj /EHsc /Bt+ /MP %RUNTIME% /Zi /LD /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %IMGUI_CONFIG_DEFINE% %CSTD% ^
         /I"%PROJ_INCLUDE_DIR%" ^
         /I"%IMGUI_DIR%" /I"%IMGUI_DIR%\misc\cpp" ^
         /I"%KIERO_DIR%" /I"%EXTERNALS_DIR%" ^

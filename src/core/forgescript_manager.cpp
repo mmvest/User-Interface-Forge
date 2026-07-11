@@ -16,6 +16,7 @@
 #include <windows.h>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <plog/Log.h>
 
 #include "core\util.h"
@@ -628,6 +629,11 @@ void ForgeScriptManager::RunScripts()
 
     for(const auto& script : scripts)
     {
+        // Snapshot ImGui's stack state so a script that errors out mid-window (or
+        // leaks pushes) is unwound here instead of corrupting the scripts after it.
+        ImGuiErrorRecoveryState imgui_state;
+        ImGui::ErrorRecoveryStoreState(&imgui_state);
+
         try
         {
             currently_executing_script = script.get();
@@ -639,6 +645,8 @@ void ForgeScriptManager::RunScripts()
             CoreUtils::ErrorMessageBox(err.what());
             script->Disable();
         }
+
+        ImGui::ErrorRecoveryTryToRecoverState(&imgui_state);
     }
 
     currently_executing_script = nullptr;
@@ -783,6 +791,10 @@ void ForgeScriptManager::RunSettingsCallback(ForgeScript* script)
         lua["package"]["path"] = package_modules + "\\?.lua;" + package_modules + "\\?\\?.lua;" + saved_package_path;
     }
 
+    // No manual ImGui state recovery here. The callback draws inside the settings
+    // window's tab bar, and ErrorRecoveryTryToRecoverState force-closes any tab bar
+    // open on the current window (ImGui cannot recover from inside a tab item).
+    // Leaks from the callback are repaired by ImGui's end-of-frame recovery instead.
     try
     {
         script->RunSettingsCallback();

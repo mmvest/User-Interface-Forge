@@ -166,7 +166,7 @@ You build your UI in Lua-based scripts (ForgeScripts). How it works:
 
 - **Custom modules**: Add libraries or Lua modules to `scripts\modules` to `require` them from your scripts, or bundle them inside a script package's own `modules` folder. An embedded `serpent` serializer is available via `require("serpent")`.
 
-- **Example scripts**: [`test_window_01.lua`](scripts/test_window_01.lua) and [`test_window_02.lua`](scripts/test_window_02.lua) show basic use of the ImGui bindings and UiForge.
+- **Example script**: The [`uiforge_example`](scripts/uiforge_example) package is a single tour of UiForge's features. ImGui widgets, drawing, window flags, packaged modules and resources, fonts, audio, and a bouncing balls demo wired into the Settings/Save/Load callbacks.
 
 - **Static linking**: Third-party dependencies (ImGui, Kiero, LuaJIT, etc.) are statically linked into UiForge, so there are no extra DLLs to manage. Dependencies are typically kept as git submodules under the [`externals`](externals) folder.
 
@@ -195,6 +195,13 @@ Exposed under the global `UiForge` table:
 | `UiForge.LoadTexture(path)` | Loads an image into a texture handle usable with `ImGui.Image`. Relative paths resolve against the calling package's `resources` folder first (if any), then the shared resources directory. |
 | `UiForge.CreateTextureFromMemory(rgba, width, height)` | Creates a texture from raw 32-bit RGBA pixel bytes (pass a Lua string, e.g. via `ffi.string(buf, len)`). |
 | `UiForge.ReleaseTexture(handle)` | Releases a texture created by the above. |
+| `UiForge.LoadFont(path[, size_px])` | Loads a `.ttf`/`.otf` font and returns an `ImFont` usable with `ImGui.PushFont`. Relative paths resolve like `LoadTexture`. On any failure (missing file, bad font) it returns the default font, so `PushFont` is always safe. Repeat loads of the same path and size return the same font. |
+| `UiForge.LoadSound(path)` | Loads an `.mp3` or `.wav` file and returns a sound handle, or `nil` when the file is missing or cannot be opened. Relative paths resolve like `LoadTexture`. Repeat loads of the same file return the same handle. |
+| `UiForge.PlaySound(handle[, options])` | Plays a loaded sound from the beginning. `options` is a table supporting `volume` (0.0 to 1.0, default 1.0) and `loop` (default false). |
+| `UiForge.StopSound(handle)` | Stops a playing sound. |
+| `UiForge.IsSoundPlaying(handle)` | Returns whether the sound is currently playing. |
+| `UiForge.SetSoundVolume(handle, volume)` | Adjusts a sound's volume (0.0 to 1.0), including while it is playing. |
+| `UiForge.ReleaseSound(handle)` | Releases a loaded sound. All sounds are released automatically on eject. |
 | `UiForge.RegisterCallback(type, fn)` | Registers a callback for the current script (see below). |
 | `UiForge.CallbackType` | Table of callback type constants: `Settings`, `DisableScript`, `Save`, `Load`, `OnEject`. |
 
@@ -245,7 +252,6 @@ Options are set in the `config` file as `KEY=value` pairs.
 | `INJECTOR_LOG_FILE_NAME` | Injector log file name. Default `inject_log.txt`. |
 | `LOG_FILE_NAME` | Core log file name. Default `forge_log.txt`. |
 | `LOGGING_LEVEL` | `0` none, `1` fatal, `2` error, `3` warning, `4` info, `5` debug, `6` verbose. |
-| `BITS` | Unused. |
 
 > The `profiles` directory is not configurable; it is always `<scripts directory>\profiles`.
 
