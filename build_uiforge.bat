@@ -401,8 +401,10 @@ copy /Y "%BIN_DIR%\uiforge_core.dll" "%STAGING_DIR%\bin\" >nul
 if exist "%CWD%scripts\modules"   xcopy /E /I /Y "%CWD%scripts\modules"   "%STAGING_DIR%\scripts\modules"   >nul
 if exist "%CWD%scripts\resources" xcopy /E /I /Y "%CWD%scripts\resources" "%STAGING_DIR%\scripts\resources" >nul
 
-@REM Include the example scripts if they are present.
+@REM Include the example scripts if they are present, both loose .lua files and
+@REM the uiforge_example package directory.
 for %%F in ("%CWD%scripts\*.lua") do copy /Y "%%~fF" "%STAGING_DIR%\scripts\" >nul
+if exist "%CWD%scripts\uiforge_example" xcopy /E /I /Y "%CWD%scripts\uiforge_example" "%STAGING_DIR%\scripts\uiforge_example" >nul
 
 @REM Create the releases directory and (re)write the zip.
 if not exist "%RELEASES_DIR%" mkdir "%RELEASES_DIR%"
