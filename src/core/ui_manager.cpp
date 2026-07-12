@@ -25,6 +25,15 @@ std::mutex UiManager::wndproc_mutex;
 
 ImGuiContext* UiManager::imgui_context = nullptr;
 
+std::mutex UiManager::input_queue_mutex;
+std::vector<UiManager::PendingInputMessage> UiManager::input_queue;
+std::atomic<bool> UiManager::imgui_wants_keyboard{false};
+int UiManager::mouse_buttons_down = 0;
+
+// If the host stops presenting (paused, minimized, alt-tabbed) nothing drains the queue, so
+// cap it rather than growing without bound.
+static constexpr size_t MAX_QUEUED_INPUT_MESSAGES = 1024;
+
 UiManager::UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y) : target_window(target_window), root_window(nullptr), show_settings(false), settings_icon_size(settings_icon_size_x, settings_icon_size_y)
 {
     InitializeImGui();
@@ -443,9 +452,13 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
         last_hook_scan_ms = now_ms;
         HookAllProcessWindows();
     }
+    // Feed ImGui the window messages WndProc captured. This is the only place they are safe to
+    // apply, since this thread owns the ImGui context and its input event queue.
+    DrainInputMessages();
+
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
-    
+
     // Execute all UI Mods
     // CreateTestWindow();
     RenderSettingsIcon(settings_icon);
@@ -453,6 +466,9 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
     script_manager.RunScripts();
 
     ImGui::Render();
+
+    // Publish what WndProc needs to know so it never has to read io from the window thread.
+    imgui_wants_keyboard.store(ImGui::GetIO().WantCaptureKeyboard, std::memory_order_relaxed);
 }
 
 bool UiManager::UpdateTargetWindow(HWND new_target_window)
@@ -467,6 +483,10 @@ bool UiManager::UpdateTargetWindow(HWND new_target_window)
     UnhookWndProc(old_target);
     if (old_root && old_root != old_target)
         UnhookWndProc(old_root);
+
+    // Messages queued against the old window are meaningless once the backend is torn down.
+    ClearInputMessages();
+    mouse_buttons_down = 0;
 
     ImGui_ImplWin32_Shutdown();
 
@@ -496,14 +516,20 @@ bool UiManager::UpdateTargetWindow(HWND new_target_window)
 
 void UiManager::CleanupUiManager()
 {
+    // Unhook first, so no more messages can be queued while we tear the context down, then drop
+    // whatever is still queued. Any message that slips in past this sees a null imgui_context.
+    UnhookAllWndProcs();
+    imgui_context = nullptr;
+    ClearInputMessages();
+    mouse_buttons_down = 0;
+    imgui_wants_keyboard.store(false, std::memory_order_relaxed);
+
     if(mod_context)
     {
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext(mod_context);
+        mod_context = nullptr;
     }
-
-    imgui_context = nullptr;
-    UnhookAllWndProcs();
 }
 
 void UiManager::UnhookAllWndProcs()
@@ -677,27 +703,122 @@ static bool HandleKeyboardInput(UINT msg, WPARAM wParam, LPARAM lParam)
     return false;
 }
 
+bool UiManager::IsKeyboardMessage(UINT msg)
+{
+    return msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP ||
+           msg == WM_CHAR || msg == WM_SYSCHAR ||
+           msg == WM_IME_STARTCOMPOSITION || msg == WM_IME_COMPOSITION || msg == WM_IME_ENDCOMPOSITION;
+}
+
+bool UiManager::IsInputMessage(UINT msg)
+{
+    switch (msg)
+    {
+        case WM_MOUSEMOVE:
+        case WM_NCMOUSEMOVE:
+        case WM_MOUSELEAVE:
+        case WM_NCMOUSELEAVE:
+        case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: case WM_LBUTTONUP:
+        case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK: case WM_RBUTTONUP:
+        case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK: case WM_MBUTTONUP:
+        case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK: case WM_XBUTTONUP:
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL:
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+        case WM_INPUTLANGCHANGE:
+            return true;
+        default:
+            return IsKeyboardMessage(msg);
+    }
+}
+
+void UiManager::QueueInputMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    std::lock_guard<std::mutex> lock(input_queue_mutex);
+
+    // Mouse moves arrive far faster than we render and only the newest one matters, so collapse
+    // a run of them instead of replaying a frame's worth of stale positions.
+    if (msg == WM_MOUSEMOVE && !input_queue.empty())
+    {
+        PendingInputMessage& last = input_queue.back();
+        if (last.msg == WM_MOUSEMOVE && last.hwnd == hwnd)
+        {
+            last.wparam = wparam;
+            last.lparam = lparam;
+            return;
+        }
+    }
+
+    if (input_queue.size() >= MAX_QUEUED_INPUT_MESSAGES)
+        input_queue.erase(input_queue.begin());
+
+    input_queue.push_back({hwnd, msg, wparam, lparam});
+}
+
+void UiManager::DrainInputMessages()
+{
+    std::vector<PendingInputMessage> messages;
+    {
+        std::lock_guard<std::mutex> lock(input_queue_mutex);
+        messages.swap(input_queue);
+    }
+
+    for (const PendingInputMessage& message : messages)
+        ImGui_ImplWin32_WndProcHandler(message.hwnd, message.msg, message.wparam, message.lparam);
+}
+
+void UiManager::ClearInputMessages()
+{
+    std::lock_guard<std::mutex> lock(input_queue_mutex);
+    input_queue.clear();
+}
+
 LRESULT WINAPI UiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    LRESULT imgui_handled = 0;
-    if (imgui_context)
+    if (imgui_context && IsInputMessage(msg))
     {
-        ImGui::SetCurrentContext(imgui_context);
-        imgui_handled = ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
+        // Do NOT hand this message to ImGui here. This is the host's window thread, and ImGui's
+        // input queue and current context belong to the render thread that calls NewFrame inside
+        // the present hook. Touching either from here corrupts the event queue mid frame, which
+        // is what used to trip the ImVector bounds assert in FindLatestInputEvent and take the
+        // whole host process down with it. Copy the message and let the render thread replay it.
+        QueueInputMessage(hWnd, msg, wParam, lParam);
+
+        // Mouse capture is the one thing that cannot be deferred: only the thread that owns a
+        // window may capture it, so we do here what the ImGui Win32 backend would have done.
+        switch (msg)
+        {
+            case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK:
+            case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK:
+            case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK:
+            case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK:
+                if (mouse_buttons_down++ == 0 && GetCapture() == nullptr)
+                    SetCapture(hWnd);
+                break;
+
+            case WM_LBUTTONUP:
+            case WM_RBUTTONUP:
+            case WM_MBUTTONUP:
+            case WM_XBUTTONUP:
+                if (mouse_buttons_down > 0 && --mouse_buttons_down == 0 && GetCapture() == hWnd)
+                    ReleaseCapture();
+                break;
+
+            case WM_KILLFOCUS:
+                mouse_buttons_down = 0;
+                break;
+
+            default:
+                break;
+        }
     }
 
     // When ImGui is actively interacting with UI, swallow keyboard input so the host app doesn't also act on it.
-    if (imgui_context)
-    {
-        const ImGuiIO& io = ImGui::GetIO();
-        const bool is_keyboard_message =
-            msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP ||
-            msg == WM_CHAR || msg == WM_SYSCHAR ||
-            msg == WM_IME_STARTCOMPOSITION || msg == WM_IME_COMPOSITION || msg == WM_IME_ENDCOMPOSITION;
-
-        if (io.WantCaptureKeyboard && is_keyboard_message)
-            return imgui_handled ? imgui_handled : 0;
-    }
+    // The flag is published by the render thread each frame, since reading io from here would be the
+    // very race we just removed.
+    if (imgui_context && IsKeyboardMessage(msg) && imgui_wants_keyboard.load(std::memory_order_relaxed))
+        return 0;
 
     if (WNDPROC original = GetOriginalWndProc(hWnd))
         return CallWindowProcW(original, hWnd, msg, wParam, lParam);

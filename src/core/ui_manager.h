@@ -1,7 +1,9 @@
 #pragma once
 #include <Windows.h>
+#include <atomic>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
 
 #include <imgui.h>
 #include "core\forgescript_manager.h"
@@ -86,10 +88,75 @@ class UiManager
          * @return LRESULT result of the message processing.
          */
         static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-         
+
         static std::mutex wndproc_mutex;
         static std::unordered_map<HWND, WNDPROC> original_wndprocs;
         static ImGuiContext* imgui_context;
+
+        /**
+         * @brief One window message captured by WndProc, waiting to be fed to ImGui.
+         */
+        struct PendingInputMessage
+        {
+            HWND hwnd;
+            UINT msg;
+            WPARAM wparam;
+            LPARAM lparam;
+        };
+
+        /**
+         * @brief Input messages captured on the window thread, drained on the render thread.
+         *
+         * ImGui is not thread safe. Its input event queue belongs to whichever thread calls
+         * NewFrame, which for us is the graphics thread inside the present hook. WndProc runs
+         * on the host's window thread, so feeding ImGui from there races the render thread and
+         * corrupts the event queue. We copy the messages instead and replay them where ImGui
+         * is safe to touch.
+         */
+        static std::mutex input_queue_mutex;
+        static std::vector<PendingInputMessage> input_queue;
+
+        /**
+         * @brief The render thread's most recent io.WantCaptureKeyboard.
+         *
+         * WndProc needs to know whether ImGui is typing so it can swallow the key, but reading
+         * io from the window thread is exactly the race we are trying to remove, so the render
+         * thread publishes the flag here once per frame.
+         */
+        static std::atomic<bool> imgui_wants_keyboard;
+
+        /**
+         * @brief Mouse buttons currently held, tracked so mouse capture can stay on the window thread.
+         *
+         * Only the thread that owns a window may call SetCapture on it, so the capture the ImGui
+         * Win32 backend would normally take has to happen in WndProc rather than during the drain.
+         */
+        static int mouse_buttons_down;
+
+        /**
+         * @brief True for the messages ImGui cares about (mouse, keyboard, focus, IME).
+         */
+        static bool IsInputMessage(UINT msg);
+
+        /**
+         * @brief True for keyboard and text messages, which are swallowed while ImGui is typing.
+         */
+        static bool IsKeyboardMessage(UINT msg);
+
+        /**
+         * @brief Copies one window message into the queue for the render thread.
+         */
+        static void QueueInputMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+
+        /**
+         * @brief Feeds every queued window message to ImGui. Render thread only, before NewFrame.
+         */
+        static void DrainInputMessages();
+
+        /**
+         * @brief Drops any queued messages, e.g. when the target window changes or we shut down.
+         */
+        static void ClearInputMessages();
 
         /**
          * @brief Replaces a window's procedure so keyboard input can be routed through ImGui.
