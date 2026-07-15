@@ -706,10 +706,15 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
             return cached->second;
         }
 
+        // If we fails to find the font we just cache the default imgui font,
+        // so a script asking for a missing font every frame will only warn
+        // us once in the log  instead of retrying and flooding the log with
+        // a ton of the same error/warning logs.
         std::error_code ec;
         if (!std::filesystem::exists(font_path, ec))
         {
             PLOG_WARNING << "LoadFont could not find \"" << font_path.string() << "\". Falling back to the default font.";
+            loaded_fonts[cache_key] = fallback;
             return fallback;
         }
 
@@ -720,6 +725,7 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
         if (!font)
         {
             PLOG_WARNING << "LoadFont failed to load \"" << font_path.string() << "\". Falling back to the default font.";
+            loaded_fonts[cache_key] = fallback;
             return fallback;
         }
 
