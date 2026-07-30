@@ -105,7 +105,22 @@ function ImGui.IsWindowFocused(flags) end
 ---@return boolean
 function ImGui.IsWindowHovered(flags) end
 
--- !WARNING! GetWindowDrawList is not supported.
+---get the draw list associated with the current window.
+---@return ImDrawList
+function ImGui.GetWindowDrawList() end
+
+---get the background draw list. Renders behind every window and spans the whole viewport.
+---@return ImDrawList
+function ImGui.GetBackgroundDrawList() end
+
+---get the foreground draw list. Renders in front of every window and spans the whole viewport.
+---@return ImDrawList
+function ImGui.GetForegroundDrawList() end
+
+---get the display size in pixels (io.DisplaySize).
+---@return number width
+---@return number height
+function ImGui.GetDisplaySize() end
 
 ---get DPI scale currently associated to the current window's viewport.
 ---@return number
@@ -1665,6 +1680,19 @@ function ImGui.IsAnyMouseDown() end
 ---shortcut to ImGui::GetIO().MousePos provided by user, to be consistent with other calls
 ---@return number x , number y
 function ImGui.GetMousePos() end
+
+---mouse wheel scroll this frame. vertical is positive when scrolling up.
+---@return number vertical
+---@return number horizontal
+function ImGui.GetMouseWheel() end
+
+---true when ImGui wants the mouse, so the game should ignore mouse input this frame.
+---@return boolean
+function ImGui.WantCaptureMouse() end
+
+---true when ImGui wants the keyboard, so the game should ignore keyboard input this frame.
+---@return boolean
+function ImGui.WantCaptureKeyboard() end
 
 ---retrieve mouse position at the time of opening popup we have BeginPopup() into 
 ---(helper to avoid user backing that value themselves)
