@@ -222,7 +222,7 @@ if "%BUILD_INJECTOR%"=="true" (
         /I"%PLOG_INCLUDE_DIR%" /I"%SCL_INCLUDE_DIR%" /I"%INJECTTOOLS_DIR%" ^
         /Fo"%OBJ_DIR_INJECTOR%\\" /Fe:"%CWD%UiForge.exe" ^
         "%SRC_DIR%\injector\injector.cpp" ^
-        /link %LINK_FTXUI%
+        /link %LINK_FTXUI% Advapi32.lib
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /EHsc        : Enables standard C++ exception handling.
     @REM %RUNTIME%    : Runtime library setting (must match third-party objects).

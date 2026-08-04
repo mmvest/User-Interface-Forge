@@ -268,7 +268,61 @@ namespace
         std::wstring exe_name;
         std::wstring path;
         int match_rank = 0; // 0 exact, 1 substring, 2 small edit-distance
+        bool elevated = false;
+        bool elevation_known = false;
     };
+
+    // TokenElevation is readable cross-integrity for the same user, which is exactly
+    // what lets an unelevated UiForge detect that its target is elevated.
+    static bool QueryElevation(HANDLE process_handle, bool& out_elevated)
+    {
+        HANDLE token = NULL;
+        if (!OpenProcessToken(process_handle, TOKEN_QUERY, &token))
+        {
+            return false;
+        }
+
+        TOKEN_ELEVATION elevation = {};
+        DWORD size = sizeof(elevation);
+        bool ok = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size) != 0;
+        if (ok)
+        {
+            out_elevated = (elevation.TokenIsElevated != 0);
+        }
+        CloseHandle(token);
+        return ok;
+    }
+
+    static bool IsCurrentProcessElevated()
+    {
+        bool elevated = false;
+        QueryElevation(GetCurrentProcess(), elevated);
+        return elevated;
+    }
+
+    // OpenProcessToken is documented against PROCESS_QUERY_INFORMATION, so ask for that first
+    // and fall back to the limited right, which newer Windows accepts and which a medium
+    // integrity process is more likely to get on an elevated target.
+    static bool TryIsTargetProcessElevated(DWORD pid, bool& out_elevated)
+    {
+        const DWORD access_rights[] = { PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION };
+        for (DWORD access : access_rights)
+        {
+            HANDLE process = OpenProcess(access, FALSE, pid);
+            if (!process)
+            {
+                continue;
+            }
+
+            bool ok = QueryElevation(process, out_elevated);
+            CloseHandle(process);
+            if (ok)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     static std::wstring TryGetProcessPath(DWORD pid)
     {
@@ -369,6 +423,17 @@ namespace
     {
         const SIZE_T PAGE_SIZE_BYTES = 4096;
 
+        // Check this before anything else. An elevated target denies us the module snapshot
+        // below, which would otherwise report itself as "core already loaded".
+        bool target_elevated = false;
+        const bool self_elevated = IsCurrentProcessElevated();
+        if (!self_elevated && TryIsTargetProcessElevated(pid, target_elevated) && target_elevated)
+        {
+            PLOG_ERROR << L"[PID " << std::dec << pid << L"] Target process is running as Administrator but UiForge is not. "
+                       << L"Close UiForge and run it as Administrator, then try again.";
+            return false;
+        }
+
         PLOG_DEBUG << L"[PID " << std::dec << pid << L"] Checking if core dll is already loaded...";
         if (IsDllLoadedInProcess(pid, core_dll_path.c_str()))
         {
@@ -380,7 +445,13 @@ namespace
         HANDLE target_process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
         if (!target_process)
         {
-            PLOG_ERROR << L"[PID " << std::dec << pid << L"] Failed to access target process. Error: " << GetLastError();
+            const DWORD open_err = GetLastError();
+            PLOG_ERROR << L"[PID " << std::dec << pid << L"] Failed to access target process. Error: " << open_err;
+            if (open_err == ERROR_ACCESS_DENIED && !self_elevated)
+            {
+                PLOG_ERROR << L"[PID " << std::dec << pid << L"] Access was denied. If the target is running as Administrator, "
+                           << L"UiForge has to run as Administrator too.";
+            }
             return false;
         }
 
@@ -700,7 +771,9 @@ int wmain(int argc, wchar_t** argv)
 
     if (!(std::filesystem::exists(CONFIG_FILE) && std::filesystem::is_regular_file(CONFIG_FILE)))
     {
-        std::wcout << L"[!] Config file does not exist. Be sure a config file is defined in your current directory. See the github repo for an example config file.\n";
+        std::wcout << L"[!] Config file does not exist. Be sure a config file is defined in your current directory (" << std::filesystem::current_path().wstring() << "). See the github repo for an example config file.\n";
+        std::wcout << L"[+] Press enter to exit...";
+        std::wcin.get();
         return EXIT_FAILURE;
     }
 
@@ -761,6 +834,32 @@ int wmain(int argc, wchar_t** argv)
         candidates = FindMatchingProcessesByName(target_process_name ? target_process_name : L"");
     }
 
+    const bool self_elevated = IsCurrentProcessElevated();
+    PLOG_DEBUG << L"UiForge elevated: " << self_elevated;
+
+    for (auto& info : candidates)
+    {
+        bool elevated = false;
+        if (TryIsTargetProcessElevated(info.pid, elevated))
+        {
+            info.elevated = elevated;
+            info.elevation_known = true;
+        }
+    }
+
+    if (!self_elevated)
+    {
+        for (const auto& info : candidates)
+        {
+            if (info.elevation_known && info.elevated)
+            {
+                PLOG_WARNING << L"[PID " << std::dec << info.pid
+                             << L"] Target process is running as Administrator but UiForge is not. "
+                             << L"Injecting into it needs UiForge to run as Administrator too.";
+            }
+        }
+    }
+
     enum class UiMode
     {
         Select,
@@ -791,6 +890,10 @@ int wmain(int argc, wchar_t** argv)
                 row += "  " + ShortenPathUtf8(p.path, 60);
             }
             row += selected[i] ? "   [x]" : "   [ ]";
+            if (!self_elevated && p.elevation_known && p.elevated)
+            {
+                row += "   [ADMIN REQUIRED]";
+            }
             menu_entries.push_back(std::move(row));
         }
     };
@@ -930,6 +1033,20 @@ int wmain(int argc, wchar_t** argv)
             text(step_text) | dim | center,
         });
 
+        auto admin_warning_lines = [&]() -> Elements {
+            Elements out;
+            if (self_elevated) return out;
+
+            const bool any_elevated = std::any_of(candidates.begin(), candidates.end(),
+                [](const ProcessInfo& p) { return p.elevation_known && p.elevated; });
+            if (any_elevated)
+            {
+                out.push_back(text("Target is running as Administrator but UiForge is not.") | color(Color::Red) | bold | center);
+                out.push_back(text("Close UiForge and run it as Administrator, then try again.") | color(Color::Red) | center);
+            }
+            return out;
+        };
+
         Element main_panel;
         if (candidates.empty())
         {
@@ -943,10 +1060,12 @@ int wmain(int argc, wchar_t** argv)
         }
         else if (candidates.size() == 1 && show_injecting)
         {
-            main_panel = vbox({
+            Elements children = {
                 text("Auto-injecting into PID " + std::to_string(candidates[0].pid) + "...") | bold | center,
                 text("Logs are updating below.") | dim | center,
-            });
+            };
+            for (auto& line : admin_warning_lines()) children.push_back(line);
+            main_panel = vbox(children);
         }
         else if (candidates.size() == 1 && show_done)
         {
@@ -955,18 +1074,18 @@ int wmain(int argc, wchar_t** argv)
                 std::scoped_lock lock(done_mutex);
                 msg = done_message.empty() ? "Done." : done_message;
             }
-            main_panel = vbox({
-                text(msg) | bold | center,
-                separator(),
-                exit_button->Render() | center,
-            });
+            Elements children = { text(msg) | bold | center };
+            for (auto& line : admin_warning_lines()) children.push_back(line);
+            children.push_back(separator());
+            children.push_back(exit_button->Render() | center);
+            main_panel = vbox(children);
         }
         else if (show_select && candidates.size() >= 1)
         {
             std::string target = target_process_name ? WideToUtf8(target_process_name) : "(pid)";
             auto instructions = paragraph("↑/↓: move   Space: toggle   Tab: switch focus   Enter: activate   Esc: cancel") | dim | center;
 
-            main_panel = vbox({
+            Elements children = {
                 text("Target: " + target) | center,
                 separator(),
                 window(text("Matches (PID first)"),
@@ -974,7 +1093,17 @@ int wmain(int argc, wchar_t** argv)
                 separator(),
                 inject_button->Render() | center,
                 instructions,
-            });
+            };
+            if (!self_elevated)
+            {
+                const bool any_elevated = std::any_of(candidates.begin(), candidates.end(),
+                    [](const ProcessInfo& p) { return p.elevation_known && p.elevated; });
+                if (any_elevated)
+                {
+                    children.push_back(text("Entries marked [ADMIN REQUIRED] are elevated. Re-run UiForge as Administrator to inject into them.") | color(Color::Red) | center);
+                }
+            }
+            main_panel = vbox(children);
         }
         else if (show_injecting)
         {
@@ -990,11 +1119,11 @@ int wmain(int argc, wchar_t** argv)
                 std::scoped_lock lock(done_mutex);
                 msg = done_message.empty() ? "Done." : done_message;
             }
-            main_panel = vbox({
-                text(msg) | bold | center,
-                separator(),
-                exit_button->Render() | center,
-            });
+            Elements children = { text(msg) | bold | center };
+            for (auto& line : admin_warning_lines()) children.push_back(line);
+            children.push_back(separator());
+            children.push_back(exit_button->Render() | center);
+            main_panel = vbox(children);
         }
 
         auto lines = ui_log_buffer.Snapshot();
