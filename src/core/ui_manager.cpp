@@ -1,4 +1,6 @@
+#include <cfloat>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <atomic>
 #include <vector>
@@ -34,7 +36,10 @@ int UiManager::mouse_buttons_down = 0;
 // cap it rather than growing without bound.
 static constexpr size_t MAX_QUEUED_INPUT_MESSAGES = 1024;
 
-UiManager::UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y) : target_window(target_window), root_window(nullptr), show_settings(false), settings_icon_size(settings_icon_size_x, settings_icon_size_y)
+// Sizes offered by the settings window's font size dropdown, in pixels.
+static constexpr float SETTINGS_FONT_SIZES[] = { 10.0f, 12.0f, 13.0f, 14.0f, 16.0f, 18.0f, 20.0f, 24.0f, 28.0f, 32.0f };
+
+UiManager::UiManager(HWND target_window, float settings_icon_size_x, float settings_icon_size_y) : target_window(target_window), root_window(nullptr), show_settings(false), settings_icon_size(settings_icon_size_x, settings_icon_size_y), settings_font_size(0.0f)
 {
     InitializeImGui();
 };
@@ -195,6 +200,21 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
     static bool open_save_profile_popup = false;
     static char profile_name_buffer[64] = "";
 
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    // The host's own base size is only known once ImGui has resolved it, so adopt it the first
+    // time through and the dropdown opens on whatever the user is already seeing.
+    if (settings_font_size <= 0.0f) settings_font_size = style.FontSizeBase;
+
+    // Pushed before Begin so the menu bar height, window padding, and every child are laid out
+    // at this size. Popped after End, which keeps every other window on the host's font.
+    ImGui::PushFont(nullptr, settings_font_size);
+
+    // A larger font must not squeeze the two panels into nothing, so the floor grows with the
+    // text. Above the floor the size is still whatever the user dragged it to.
+    ImGui::SetNextWindowSizeConstraints(ImVec2(settings_font_size * 34.0f, settings_font_size * 18.0f),
+                                        ImVec2(FLT_MAX, FLT_MAX));
+
     if (ImGui::Begin("UiForge Settings", nullptr, ImGuiWindowFlags_MenuBar))
     {
         if (ImGui::BeginMenuBar())
@@ -248,6 +268,40 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
 
                 ImGui::EndMenu();
             }
+
+            ImGui::Separator();
+            ImGui::TextUnformatted("Font Size");
+            bool font_size_hovered = ImGui::IsItemHovered();
+
+            char font_size_preview[16];
+            snprintf(font_size_preview, sizeof(font_size_preview), "%.0f", settings_font_size);
+
+            ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetFrameHeight() + style.FramePadding.x * 2.0f);
+            if (ImGui::BeginCombo("##UiForgeSettingsFontSize", font_size_preview))
+            {
+                for (const float size : SETTINGS_FONT_SIZES)
+                {
+                    char size_label[16];
+                    snprintf(size_label, sizeof(size_label), "%.0f", size);
+                    if (ImGui::Selectable(size_label, size == settings_font_size))
+                    {
+                        // Takes effect next frame, since this frame's font is already pushed.
+                        settings_font_size = size;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            else
+            {
+                // Only asked for while the popup is closed, so the last item is still the combo.
+                font_size_hovered = font_size_hovered || ImGui::IsItemHovered();
+            }
+
+            if (font_size_hovered)
+            {
+                ImGui::SetTooltip("Font size: %.0f", settings_font_size);
+            }
+
             ImGui::EndMenuBar();
         }
 
@@ -279,7 +333,6 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
             ImGui::EndPopup();
         }
 
-        ImGuiStyle& style = ImGui::GetStyle();
         float line_height = ImGui::GetTextLineHeightWithSpacing();
         float checkbox_height = ImGui::GetFrameHeight();
         ImVec2 parent_window_size = ImGui::GetContentRegionAvail();
@@ -437,6 +490,7 @@ void UiManager::RenderSettingsWindow(ForgeScriptManager& script_manager)
         ImGui::EndGroup();
     }
     ImGui::End();
+    ImGui::PopFont();
 }
 
 void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* settings_icon)

@@ -235,4 +235,12 @@ class UiManager
         bool show_settings;
         ImVec2 settings_icon_size;
 
+        /**
+         * @brief Base font size for the settings window only, in pixels.
+         *
+         * Pushed around the settings window so scripts keep whatever font they chose. Starts at
+         * 0, which means "not picked yet" and resolves to the host's own base size on the first
+         * frame, since that size is not known until ImGui has run once.
+         */
+        float settings_font_size;
 };
