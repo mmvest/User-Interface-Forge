@@ -99,6 +99,29 @@ class IGraphicsApi
         static void (*ReleaseTexture)(void* texture);
 
         /**
+         * @brief Queues a texture to be released once no in flight frame can still reference it.
+         *
+         * ImGui stores the raw texture handle in its draw list and does not read it until the
+         * backend renders that draw data. Freeing the moment a caller asks would therefore leave a
+         * dangling handle in the frame currently being built, so callers releasing textures during
+         * a frame must come through here rather than calling ReleaseTexture directly.
+         *
+         * @param texture The texture handle to release. Null is ignored.
+         */
+        static void QueueTextureRelease(void* texture);
+
+        /**
+         * @brief Releases queued textures that have been held long enough to be safe.
+         *
+         * Called once per frame by the active implementation's Render, after the frame's draw data
+         * has been handed to the backend.
+         *
+         * @param release_all When true, releases every queued texture regardless of how long it has
+         * been held. Intended for shutdown, once rendering has already stopped.
+         */
+        static void DrainTextureReleases(bool release_all = false);
+
+        /**
          * @brief Shuts down the ImGui implementation for the graphics API.
          */
         static void (*ShutdownImGuiImpl)();
@@ -114,6 +137,16 @@ class IGraphicsApi
         static void* HookedFunction;    // This is because I am treating these variables like functions and thus use function naming convention.
         static bool  initialized;
         static HWND  target_window;
+
+    private:
+        // A texture handle awaiting release, and how many more frames it has to be held first.
+        struct PendingTextureRelease
+        {
+            void* texture;
+            int   frames_remaining;
+        };
+
+        static std::vector<PendingTextureRelease> pending_texture_releases;
 };
 
 /**

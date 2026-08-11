@@ -32,6 +32,46 @@ void*   IGraphicsApi::HookedFunction                                            
 HWND    IGraphicsApi::target_window                                                                 = nullptr;
 bool    IGraphicsApi::initialized                                                                   = false;
 
+std::vector<IGraphicsApi::PendingTextureRelease> IGraphicsApi::pending_texture_releases;
+
+// Long enough to cover the deepest swap chain we present into, so a handle is never freed while
+// a submitted frame that still references it could be in flight on the GPU.
+static constexpr int TEXTURE_RELEASE_FRAME_DELAY = 3;
+
+void IGraphicsApi::QueueTextureRelease(void* texture)
+{
+    if (!texture)
+    {
+        return;
+    }
+
+    pending_texture_releases.push_back({ texture, TEXTURE_RELEASE_FRAME_DELAY });
+}
+
+void IGraphicsApi::DrainTextureReleases(bool release_all)
+{
+    if (pending_texture_releases.empty() || !IGraphicsApi::ReleaseTexture)
+    {
+        return;
+    }
+
+    // Entries that still have time left are compacted toward the front, everything else is freed.
+    size_t kept = 0;
+    for (size_t i = 0; i < pending_texture_releases.size(); ++i)
+    {
+        PendingTextureRelease entry = pending_texture_releases[i];
+        if (!release_all && --entry.frames_remaining > 0)
+        {
+            pending_texture_releases[kept++] = entry;
+            continue;
+        }
+
+        IGraphicsApi::ReleaseTexture(entry.texture);
+    }
+
+    pending_texture_releases.resize(kept);
+}
+
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                           D3D11GraphicsApi Class                          ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -181,6 +221,9 @@ void D3D11GraphicsApi::Render()
 
     d3d11_context->OMSetRenderTargets(1, &main_render_target_view, nullptr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    // The frame's draw data has been consumed, so queued texture handles can age out.
+    IGraphicsApi::DrainTextureReleases();
 
     // Release per-frame references.
     main_render_target_view->Release();
@@ -633,6 +676,9 @@ void D3D12GraphicsApi::Render()
 
     ID3D12CommandList* command_lists[] = { d3d12_command_list };
     d3d12_command_queue->ExecuteCommandLists(1, command_lists);
+
+    // The frame's draw data has been submitted, so queued texture handles can age out.
+    IGraphicsApi::DrainTextureReleases();
 
     // Release the per-frame backbuffer reference.
     current_back_buffer->Release();

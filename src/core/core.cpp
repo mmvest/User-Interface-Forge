@@ -757,13 +757,16 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
         return IGraphicsApi::CreateTextureFromMemory(rgba_pixels.data(), width, height);
     };
 
+    // Queued rather than freed outright. A script can release a texture at any point in a frame,
+    // including one it has already drawn with, and the handle stays in ImGui's draw list until the
+    // backend renders it.
     uiforge_table["ReleaseTexture"] = [](void* texture)
     {
-        if (!texture || !IGraphicsApi::ReleaseTexture)
+        if (!texture)
         {
             return;
         }
-        IGraphicsApi::ReleaseTexture(texture);
+        IGraphicsApi::QueueTextureRelease(texture);
     };
 
     // Loads a sound file (mp3 or wav) for playback. Relative paths resolve the same way
@@ -927,6 +930,10 @@ void CleanupUiForge()
 
         PLOG_INFO << "Releasing sounds...";
         AudioManager::ReleaseAll();
+
+        // Kiero is already shut down so no further frames will be presented, which means anything
+        // the scripts queued on their way out has to be freed here instead of aging out.
+        IGraphicsApi::DrainTextureReleases(true);
 
         if (settings_icon && IGraphicsApi::ReleaseTexture)
         {
