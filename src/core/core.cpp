@@ -847,6 +847,59 @@ void InitializeUiForgeLuaBindings(sol::state_view lua)
     {
         script_manager->RegisterCallback(static_cast<ForgeScriptCallbackType>(callback_type), callback);
     };
+
+    // Logging bindings
+    sol::table log_level_table = lua.create_table();
+    log_level_table["Fatal"]   = static_cast<int>(plog::fatal);
+    log_level_table["Error"]   = static_cast<int>(plog::error);
+    log_level_table["Warning"] = static_cast<int>(plog::warning);
+    log_level_table["Info"]    = static_cast<int>(plog::info);
+    log_level_table["Debug"]   = static_cast<int>(plog::debug);
+    log_level_table["Verbose"] = static_cast<int>(plog::verbose);
+    uiforge_table["LogLevel"] = log_level_table;
+
+    uiforge_table["Log"] = [](sol::object first, sol::optional<std::string> second)
+    {
+        plog::Severity severity = plog::info;
+        std::string message;
+
+        if (second)
+        {
+            if (first.get_type() != sol::type::number)
+            {
+                PLOG_WARNING << "UiForge.Log: first argument must be a UiForge.LogLevel value.";
+                return;
+            }
+
+            const int level = first.as<int>();
+            if (level < static_cast<int>(plog::fatal) || level > static_cast<int>(plog::verbose))
+            {
+                PLOG_WARNING << "UiForge.Log: unknown log level " << level << ".";
+                return;
+            }
+
+            severity = static_cast<plog::Severity>(level);
+            message = *second;
+        }
+        else if (first.get_type() == sol::type::string)
+        {
+            message = first.as<std::string>();
+        }
+        else
+        {
+            PLOG_WARNING << "UiForge.Log: expected (level, message) or (message).";
+            return;
+        }
+
+        // The log's own function/line columns point at this binding, so the calling script
+        // is named in the message itself.
+        ForgeScript* current_script = script_manager ? script_manager->GetCurrentlyExecutingScript() : nullptr;
+        const std::string source = current_script
+            ? std::filesystem::path(current_script->GetFileName()).filename().string()
+            : std::string("unknown script");
+
+        PLOG(severity) << "[" << source << "] " << message;
+    };
 }
 
 /**

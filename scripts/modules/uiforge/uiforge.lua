@@ -16,6 +16,18 @@ UiForge.CallbackType = {
     OnEject = 4,        -- Runs once for every script right before UiForge unloads
 }
 
+-- Severity levels for UiForge.Log. The log file keeps everything at or below the
+-- level set by `Logging level` in the config, which is 5 (Debug) by default, so
+-- Verbose lines are dropped unless that is raised.
+UiForge.LogLevel = {
+    Fatal = 1,
+    Error = 2,
+    Warning = 3,
+    Info = 4,
+    Debug = 5,
+    Verbose = 6,
+}
+
 UiForge.IGraphicsApi = {}
 
 --- Create a texture compatible with ImGui.Image
@@ -51,6 +63,16 @@ end
 
 --- Register a script callback for the currently running script.
 function UiForge.RegisterCallback(callback_type, callback)
+end
+
+--- Write a line to UiForge's log file. A script has no stdout, so print goes nowhere
+--- and this is how a mod leaves a trace, including one that survives a crash.
+--- The line is tagged with the name of the script that called it.
+--- The script body runs every frame, so logging from one without a guard fills the
+--- log fast and rolls the older lines away.
+--- @param level integer|string a UiForge.LogLevel value, or the message itself to log at Info
+--- @param message string|nil the line to log, omitted when passing only a message
+function UiForge.Log(level, message)
 end
 
 return UiForge
