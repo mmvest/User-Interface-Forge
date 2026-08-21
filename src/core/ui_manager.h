@@ -126,6 +126,15 @@ class UiManager
         static std::atomic<bool> imgui_wants_keyboard;
 
         /**
+         * @brief The render thread's most recent io.WantCaptureMouse.
+         *
+         * The mouse counterpart to imgui_wants_keyboard, and published the same way and for the
+         * same reason. Without it, clicks on an overlay window are handed to the host app as
+         * well, so dragging an ImGui window also turns the game camera.
+         */
+        static std::atomic<bool> imgui_wants_mouse;
+
+        /**
          * @brief Mouse buttons currently held, tracked so mouse capture can stay on the window thread.
          *
          * Only the thread that owns a window may call SetCapture on it, so the capture the ImGui
@@ -134,9 +143,37 @@ class UiManager
         static int mouse_buttons_down;
 
         /**
+         * @brief Buttons whose press was swallowed, and buttons whose press was passed through.
+         *
+         * Whether to swallow a button release cannot be decided from WantCaptureMouse at the time
+         * the release arrives, because the flag may have flipped mid drag. Deciding per button
+         * from what happened at press time is what keeps the host app from seeing an unmatched
+         * press (a stuck mouse button) or an unmatched release.
+         *
+         * Bit per button: 1 left, 2 right, 4 middle, 8 X1, 16 X2.
+         */
+        static unsigned int swallowed_mouse_buttons;
+        static unsigned int passthrough_mouse_buttons;
+
+        /**
          * @brief True for the messages ImGui cares about (mouse, keyboard, focus, IME).
          */
         static bool IsInputMessage(UINT msg);
+
+        /**
+         * @brief True for client area mouse messages, which are the ones eligible to be swallowed.
+         *
+         * Deliberately excludes the non client (WM_NC*) messages: those drive the host window's
+         * own title bar and borders, and swallowing them would break moving and resizing the
+         * game window itself.
+         */
+        static bool IsMouseMessage(UINT msg);
+
+        /**
+         * @brief Decides whether a mouse message should be kept from the host app, updating the
+         *        per button bookkeeping as a side effect.
+         */
+        static bool ShouldSwallowMouseMessage(UINT msg, WPARAM wparam);
 
         /**
          * @brief True for keyboard and text messages, which are swallowed while ImGui is typing.

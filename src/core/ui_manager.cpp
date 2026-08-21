@@ -30,7 +30,10 @@ ImGuiContext* UiManager::imgui_context = nullptr;
 std::mutex UiManager::input_queue_mutex;
 std::vector<UiManager::PendingInputMessage> UiManager::input_queue;
 std::atomic<bool> UiManager::imgui_wants_keyboard{false};
+std::atomic<bool> UiManager::imgui_wants_mouse{false};
 int UiManager::mouse_buttons_down = 0;
+unsigned int UiManager::swallowed_mouse_buttons = 0;
+unsigned int UiManager::passthrough_mouse_buttons = 0;
 
 // If the host stops presenting (paused, minimized, alt-tabbed) nothing drains the queue, so
 // cap it rather than growing without bound.
@@ -523,6 +526,7 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
 
     // Publish what WndProc needs to know so it never has to read io from the window thread.
     imgui_wants_keyboard.store(ImGui::GetIO().WantCaptureKeyboard, std::memory_order_relaxed);
+    imgui_wants_mouse.store(ImGui::GetIO().WantCaptureMouse, std::memory_order_relaxed);
 }
 
 bool UiManager::UpdateTargetWindow(HWND new_target_window)
@@ -541,6 +545,8 @@ bool UiManager::UpdateTargetWindow(HWND new_target_window)
     // Messages queued against the old window are meaningless once the backend is torn down.
     ClearInputMessages();
     mouse_buttons_down = 0;
+    swallowed_mouse_buttons = 0;
+    passthrough_mouse_buttons = 0;
 
     ImGui_ImplWin32_Shutdown();
 
@@ -576,7 +582,10 @@ void UiManager::CleanupUiManager()
     imgui_context = nullptr;
     ClearInputMessages();
     mouse_buttons_down = 0;
+    swallowed_mouse_buttons = 0;
+    passthrough_mouse_buttons = 0;
     imgui_wants_keyboard.store(false, std::memory_order_relaxed);
+    imgui_wants_mouse.store(false, std::memory_order_relaxed);
 
     if(mod_context)
     {
@@ -787,6 +796,94 @@ bool UiManager::IsInputMessage(UINT msg)
     }
 }
 
+bool UiManager::IsMouseMessage(UINT msg)
+{
+    switch (msg)
+    {
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: case WM_LBUTTONUP:
+        case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK: case WM_RBUTTONUP:
+        case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK: case WM_MBUTTONUP:
+        case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK: case WM_XBUTTONUP:
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Bit per mouse button, matching the masks documented in the header.
+static unsigned int MouseButtonBit(UINT msg, WPARAM wparam)
+{
+    switch (msg)
+    {
+        case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: case WM_LBUTTONUP:
+            return 1u;
+        case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK: case WM_RBUTTONUP:
+            return 2u;
+        case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK: case WM_MBUTTONUP:
+            return 4u;
+        case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK: case WM_XBUTTONUP:
+            return (GET_XBUTTON_WPARAM(wparam) == XBUTTON1) ? 8u : 16u;
+        default:
+            return 0u;
+    }
+}
+
+bool UiManager::ShouldSwallowMouseMessage(UINT msg, WPARAM wparam)
+{
+    const bool wants_mouse = imgui_wants_mouse.load(std::memory_order_relaxed);
+
+    switch (msg)
+    {
+        case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK:
+        {
+            // The press decides this button's fate for the whole click. Record which way it
+            // went so the matching release can follow it even if the hover state changed
+            // in between.
+            const unsigned int bit = MouseButtonBit(msg, wparam);
+            if (wants_mouse)
+            {
+                swallowed_mouse_buttons |= bit;
+                passthrough_mouse_buttons &= ~bit;
+                return true;
+            }
+            passthrough_mouse_buttons |= bit;
+            swallowed_mouse_buttons &= ~bit;
+            return false;
+        }
+
+        case WM_LBUTTONUP:
+        case WM_RBUTTONUP:
+        case WM_MBUTTONUP:
+        case WM_XBUTTONUP:
+        {
+            const unsigned int bit = MouseButtonBit(msg, wparam);
+            const bool was_swallowed = (swallowed_mouse_buttons & bit) != 0;
+            swallowed_mouse_buttons &= ~bit;
+            passthrough_mouse_buttons &= ~bit;
+            return was_swallowed;
+        }
+
+        case WM_MOUSEMOVE:
+            // A drag that began in the host app must keep receiving motion even when the cursor
+            // crosses an overlay window, or the camera stutters as it passes over. Once no
+            // passed through button is held, hovering the overlay stops motion reaching the game.
+            return wants_mouse && passthrough_mouse_buttons == 0;
+
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL:
+            return wants_mouse;
+
+        default:
+            return false;
+    }
+}
+
 void UiManager::QueueInputMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     std::lock_guard<std::mutex> lock(input_queue_mutex);
@@ -860,7 +957,11 @@ LRESULT WINAPI UiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
                 break;
 
             case WM_KILLFOCUS:
+                // The matching button releases will never arrive, so drop the per button
+                // bookkeeping too or the next press inherits a stale decision.
                 mouse_buttons_down = 0;
+                swallowed_mouse_buttons = 0;
+                passthrough_mouse_buttons = 0;
                 break;
 
             default:
@@ -872,6 +973,13 @@ LRESULT WINAPI UiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
     // The flag is published by the render thread each frame, since reading io from here would be the
     // very race we just removed.
     if (imgui_context && IsKeyboardMessage(msg) && imgui_wants_keyboard.load(std::memory_order_relaxed))
+        return 0;
+
+    // Same for the mouse: without this, a click that lands on an overlay window is delivered to
+    // the host app too, so dragging an ImGui window also turns the game camera and clicking a
+    // button also clicks through into the world. The message has already been queued for ImGui
+    // above; this only decides whether the host app additionally sees it.
+    if (imgui_context && IsMouseMessage(msg) && ShouldSwallowMouseMessage(msg, wParam))
         return 0;
 
     if (WNDPROC original = GetOriginalWndProc(hWnd))
