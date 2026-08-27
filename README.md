@@ -107,9 +107,18 @@ In the selector:
 
 Before injecting, UiForge checks whether the core DLL is already loaded in the target to avoid a double-injection.
 
-As long as the application is actively rendering frames with a supported graphics API, you should see the UiForge icon appear in the top-left corner of the window. Click it to open the Settings window.
+As long as the application is actively rendering frames with a supported graphics API, you should see the UiForge icon appear in the top-left corner of the window. Click it to open the Settings window. You can also press `Ctrl+Alt+Shift+O` to open the Settings window directly.
 
-To stop UiForge, click the **Eject** button in the Settings window, or press `Ctrl+Alt+Shift+End`. A dialog box will pop up confirming that UiForge has cleaned up. Note that NOT closing this dialog and then attempting to re-inject may cause UiForge to fail. (Keybinds are currently fixed in code; configurable keybinds are planned.)
+To stop UiForge, click the **Eject** button in the Settings window, or press `Ctrl+Alt+Shift+End`. A dialog box will pop up confirming that UiForge has cleaned up. Note that NOT closing this dialog and then attempting to re-inject may cause UiForge to fail.
+
+Hotkeys work whenever any window belonging to the target process has focus:
+
+| Hotkey | Action |
+|--------|--------|
+| `Ctrl+Alt+Shift+O` | Toggle the Settings window. |
+| `Ctrl+Alt+Shift+End` | Eject UiForge and clean it up. |
+
+Keybinds are currently fixed in code.
 
 ### Expected file structure
 
@@ -174,7 +183,7 @@ You build your UI in Lua-based scripts (ForgeScripts). How it works:
 
 ### The Settings window
 
-Clicking the UiForge icon opens the Settings window, which lets you:
+Clicking the UiForge icon, or pressing `Ctrl+Alt+Shift+O`, opens the Settings window, which lets you:
 
 - **Enable/disable** individual scripts via checkboxes.
 - **Select** a script to view its own settings UI (Settings tab) or its **Debug** stats (file size, read/hash time, average load/execute time, execution count).
@@ -276,6 +285,29 @@ And there you go! Now you can mess around with UiForge in the test app.
 ## Examples: UiForge in Action
 
 Examples are incoming -- currently working on a project that will be using this!
+
+## FAQ
+
+**Injection succeeds but nothing pops up.**
+Check the `config` file and make sure `GRAPHICS_API` matches the renderer the target application is actually using (`d3d11` or `d3d12`). Note that `auto` prioritizes d3d12. UiForge hooks the Direct3D present path only, so it cannot draw over an application rendering with Vulkan or OpenGL. If the API is right and the settings icon still never appears, you can try pressing `Ctrl+Alt+Shift+O` to open the Settings window directly. If that doesn't work, see the question about other overlays below.
+
+**Do other in-game overlays interfere with FrontiersForge?**
+It SEEMS like this is a real possibility. The ones that have appeared to give some trouble are the Discord overlay and MSI Afterburner / RivaTuner Statistics Server. I haven't gotten any solid evidence other than a single report that seems to suggest disabling these overlays made UiForge work. If injection reports success but no UI shows up, close the other overlays, restart the target process, and inject again. A machine restart also clears overlays whose background service survives an application restart.
+
+**I get an error like `failed to get directx device. error:-214767262` when injecting.**
+The renderer the target application is using does not match the `GRAPHICS_API` field in the config. Either switch the application to the API named in the config, or change `GRAPHICS_API` to match the application (`GRAPHICS_API=d3d12`, for example).
+
+**How do I eject?**
+Use the eject hotkey `Ctrl+Alt+Shift+End` (a window belonging to the target process must have focus), or the **Eject** button in the Settings window.
+
+**How can I tell if it is working?**
+The UiForge icon appears somewhere on the screen, generally in the top-left corner. It is dim until you hover over it. `Ctrl+Alt+Shift+O` opens the Settings window as well.
+
+**Nothing happens when I run `UiForge.exe`.**
+Check that the executable and the core DLL are where they are expected: `UiForge.exe` in the project root and `uiforge_core.dll` in the path named by `CORE_DLL` in the config (`bin` by default). You may also need to run it as administrator, especially when the target process is elevated.
+
+**Why do UI elements end up in the wrong place or the wrong size when the window or resolution changes?**
+Resizing the application window, changing resolution, or moving between monitors can make scripted UI look wrong: elements do not scale with the window, do not sit where you left them, or seem to disappear entirely when they are actually just off the edge of the screen. Each element keeps a fixed position and size in screen pixels rather than adapting to the window. The best way to avoid it is to lay out your UI at the window size and resolution you normally use, and keep using that same setup.
 
 ## Contributing
 

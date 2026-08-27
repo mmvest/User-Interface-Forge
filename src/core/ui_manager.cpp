@@ -17,7 +17,8 @@
 #include "core\graphics_api.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-extern std::atomic<bool> needs_cleanup; // From core.cpp
+extern std::atomic<bool> needs_cleanup;                 // From core.cpp
+extern std::atomic<bool> toggle_settings_requested;     // From core.cpp
 
 // Since we are now hooking multiple windows, we use this to keep track of the original WndProcs
 std::unordered_map<HWND, WNDPROC> UiManager::original_wndprocs;
@@ -26,6 +27,9 @@ std::unordered_map<HWND, WNDPROC> UiManager::original_wndprocs;
 std::mutex UiManager::wndproc_mutex;
 
 ImGuiContext* UiManager::imgui_context = nullptr;
+
+// Mirrors the instance's root window so diagnostics can report it without an instance.
+std::atomic<HWND> UiManager::imgui_root_window{nullptr};
 
 std::mutex UiManager::input_queue_mutex;
 std::vector<UiManager::PendingInputMessage> UiManager::input_queue;
@@ -60,6 +64,7 @@ void UiManager::InitializeImGui()
     root_window = GetAncestor(target_window, GA_ROOT);
     if (!root_window)
         root_window = target_window;
+    imgui_root_window.store(root_window, std::memory_order_relaxed);
 
     if (!HookWndProc(target_window))
         throw std::runtime_error("Failed to set new address for the window procedure. Error: " + std::to_string(GetLastError()));
@@ -131,6 +136,17 @@ void UiManager::UnhookWndProc(HWND hwnd)
 
     SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(it->second));
     original_wndprocs.erase(it);
+}
+
+bool UiManager::IsWindowHooked(HWND hwnd)
+{
+    std::lock_guard<std::mutex> lock(wndproc_mutex);
+    return original_wndprocs.find(hwnd) != original_wndprocs.end();
+}
+
+HWND UiManager::GetImGuiRootWindow()
+{
+    return imgui_root_window.load(std::memory_order_relaxed);
 }
 
 WNDPROC UiManager::GetOriginalWndProc(HWND hwnd)
@@ -516,6 +532,12 @@ void UiManager::RenderUiElements(ForgeScriptManager& script_manager, void* setti
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
+    // The settings hotkey is read outside the frame, so apply it here where we own the context.
+    if (toggle_settings_requested.exchange(false))
+    {
+        show_settings = !show_settings;
+    }
+
     // Execute all UI Mods
     // CreateTestWindow();
     RenderSettingsIcon(settings_icon);
@@ -554,6 +576,7 @@ bool UiManager::UpdateTargetWindow(HWND new_target_window)
     root_window = GetAncestor(target_window, GA_ROOT);
     if (!root_window)
         root_window = target_window;
+    imgui_root_window.store(root_window, std::memory_order_relaxed);
 
     if (!HookWndProc(target_window))
     {

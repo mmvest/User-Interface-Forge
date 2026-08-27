@@ -70,6 +70,7 @@
 
 #include "core\util.h"
 #include "core\audio_manager.h"
+#include "core\diagnostics.h"
 #include "core\graphics_api.h"
 #include "core\forgescript_manager.h"
 #include "core\serpent.h"
@@ -144,6 +145,9 @@ static std::unordered_map<std::string, ImFont*> loaded_fonts;
 // For cleanup
 std::atomic<HMODULE> core_module_handle(NULL);  // I actually don't think this needs to be atomic?
 std::atomic<bool> needs_cleanup(false);
+
+// Set by the settings hotkey and consumed by the UI manager on the next frame.
+std::atomic<bool> toggle_settings_requested(false);
 
 /**
  * @brief IM_ASSERT handler installed through compat\uiforge_imconfig.h.
@@ -221,6 +225,9 @@ DWORD WINAPI CoreMain(LPVOID unused_param)
         PLOG_INFO << "Logging initialized";
 
         LogConfigValues();  // Logging config values here because I have to wait until logging is initialized before I can!
+
+        // Log the other DLLs/modules loaded by the process.
+        CoreDiagnostics::LogModuleInventory();
     }
     catch(const std::exception& err)
     {
@@ -355,6 +362,9 @@ void OnGraphicsApiInvoke(void* params)
         return;
     }
 
+    // Before initialization so the swapchain is on record even when initializing against it fails.
+    CoreDiagnostics::LogSwapChainIfNew(params);
+
     if (!graphics_api->initialized)
     {
         try
@@ -384,6 +394,9 @@ void OnGraphicsApiInvoke(void* params)
             }
 
             PLOG_DEBUG << "Done with graphics initialization";
+
+            // Shows which of the process's windows we ended up attached to and which one owns focus.
+            CoreDiagnostics::LogWindowInventory("graphics initialized");
         }
         catch (const std::exception& err)
         {
@@ -399,7 +412,10 @@ void OnGraphicsApiInvoke(void* params)
     // Handle the case where the screen changes from window to fullscreen and vice versa
     // and any other render target changes.
     graphics_api->UpdateRenderTarget(params);
-    ui_manager->UpdateTargetWindow(graphics_api->target_window);
+    if (ui_manager->UpdateTargetWindow(graphics_api->target_window))
+    {
+        CoreDiagnostics::OnTargetWindowChanged(graphics_api->target_window);
+    }
 
     // A thrown IM_ASSERT (see UiForgeImGuiAssertFail) can abort the frame anywhere.
     // Catch it here, close out the ImGui frame, and skip rendering rather than
@@ -423,7 +439,7 @@ void OnGraphicsApiInvoke(void* params)
         catch (...) {}
     }
 
-    CoreUtils::ProcessCustomInputs(graphics_api->target_window);  // Put this here so it will return straight into calling the original Graphics API function
+    CoreUtils::ProcessCustomInputs();  // Put this here so it will return straight into calling the original Graphics API function
     return;
 }
 

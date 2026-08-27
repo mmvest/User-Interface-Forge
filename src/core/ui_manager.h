@@ -73,6 +73,22 @@ class UiManager
          */
         void CreateTestWindow();
 
+        /**
+         * @brief Reports whether a window's procedure is currently subclassed by UiForge.
+         *
+         * @param hwnd Window to check.
+         * @return True if we replaced its window procedure.
+         */
+        static bool IsWindowHooked(HWND hwnd);
+
+        /**
+         * @brief Returns the root window that ImGui's win32 backend was initialized against.
+         *
+         * Mirrors the instance's root window as a static so diagnostics can read it without
+         * needing the UiManager instance.
+         */
+        static HWND GetImGuiRootWindow();
+
         ImGuiContext* mod_context;
 
     private:
@@ -92,6 +108,9 @@ class UiManager
         static std::mutex wndproc_mutex;
         static std::unordered_map<HWND, WNDPROC> original_wndprocs;
         static ImGuiContext* imgui_context;
+
+        // Static mirror of the instance's root_window, kept in sync wherever root_window is set.
+        static std::atomic<HWND> imgui_root_window;
 
         /**
          * @brief One window message captured by WndProc, waiting to be fed to ImGui.

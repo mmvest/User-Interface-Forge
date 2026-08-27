@@ -5,7 +5,14 @@
 
 #include "core\util.h"
 
-extern std::atomic<bool> needs_cleanup;         // From uif_core.cpp
+extern std::atomic<bool> needs_cleanup;             // From uif_core.cpp
+extern std::atomic<bool> toggle_settings_requested; // From uif_core.cpp
+
+namespace
+{
+    // Held across frames so holding the combo toggles the settings window once per press.
+    bool settings_hotkey_was_down = false;
+}
 
 namespace CoreUtils
 {
@@ -23,12 +30,13 @@ namespace CoreUtils
         }).detach();
     }
 
-    void ProcessCustomInputs(HWND target_window)
+    void ProcessCustomInputs()
     {
-        // If we are not targeting the foreground window, we don't want to process the input
-        if (target_window != GetForegroundWindow())
+        DWORD foreground_pid = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &foreground_pid);
+        if (foreground_pid != GetCurrentProcessId())
         {
-            return; 
+            return;
         }
 
         uint32_t is_pressed = 0x8000;
@@ -41,6 +49,18 @@ namespace CoreUtils
             {
                 needs_cleanup = true;
             }
+
+            // Only fire on the press itself, otherwise holding the combo toggles every frame.
+            bool settings_hotkey_is_down = (GetAsyncKeyState('O') & is_pressed) != 0;
+            if(settings_hotkey_is_down && !settings_hotkey_was_down)
+            {
+                toggle_settings_requested = true;
+            }
+            settings_hotkey_was_down = settings_hotkey_is_down;
+        }
+        else
+        {
+            settings_hotkey_was_down = false;
         }
     }
 }

@@ -26,7 +26,9 @@ namespace CoreUtils
     /**
      * @brief Processes custom input actions for UiForge.
      *
-     * This function monitors specific keyboard input to trigger custom actions, such as cleanup operations.
+     * This function monitors specific keyboard input to trigger custom actions.
+     * Input is only processed while a window belonging to the host process holds
+     * the foreground.
      */
-    void ProcessCustomInputs(HWND target_window);
+    void ProcessCustomInputs();
 }

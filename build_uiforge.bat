@@ -63,6 +63,15 @@ set PROJ_INCLUDE_DIR=%SRC_DIR%
 set CSTD=/std:c++17
 set RUNTIME=/MT
 
+@REM Optimization. Applied to every object that ends up in UiForge.exe or the core DLL, since the
+@REM core runs inside the host's present hook and pays for every unoptimized frame. NDEBUG is
+@REM deliberately left undefined so sol2 keeps its usertype safety checks around Lua calls.
+set OPTIMIZE=/O2
+
+@REM Linker optimization. /Zi implies /DEBUG, which on its own leaves incremental linking on and
+@REM defaults /OPT to NOREF and NOICF, so the release behavior has to be asked for explicitly.
+set LINK_OPTIMIZE=/INCREMENTAL:NO /OPT:REF /OPT:ICF
+
 @REM Graphics API linking options
 set LINK_D3D11=d3d11.lib dxgi.lib d3dcompiler.lib
 set LINK_D3D12=d3d12.lib
@@ -200,11 +209,11 @@ if "%BUILD_FTXUI%"=="true" (
         goto error
     )
 
-    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\screen\\" !FTXUI_SCREEN_SOURCES!
+    cl /nologo /EHsc %RUNTIME% %OPTIMIZE% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\screen\\" !FTXUI_SCREEN_SOURCES!
     if errorlevel 1 goto error
-    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\dom\\" !FTXUI_DOM_SOURCES!
+    cl /nologo /EHsc %RUNTIME% %OPTIMIZE% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\dom\\" !FTXUI_DOM_SOURCES!
     if errorlevel 1 goto error
-    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\component\\" !FTXUI_COMPONENT_SOURCES!
+    cl /nologo /EHsc %RUNTIME% %OPTIMIZE% /DUNICODE /D_UNICODE /c %CSTD% /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" /Fo"%OBJ_DIR_FTXUI%\component\\" !FTXUI_COMPONENT_SOURCES!
     if errorlevel 1 goto error
 
     lib /nologo /OUT:"%FTXUI_LIB%" "%OBJ_DIR_FTXUI%\screen\*.obj" "%OBJ_DIR_FTXUI%\dom\*.obj" "%OBJ_DIR_FTXUI%\component\*.obj"
@@ -216,18 +225,20 @@ if "%BUILD_ALL%"=="true" set BUILD_INJECTOR=true
 if "%BUILD_INJECTOR%"=="true" (
     echo Building Injector
     if not exist %OBJ_DIR_INJECTOR% mkdir %OBJ_DIR_INJECTOR%
-    cl /nologo /EHsc %RUNTIME% /DUNICODE /D_UNICODE %CSTD% ^
+    cl /nologo /EHsc %RUNTIME% %OPTIMIZE% /DUNICODE /D_UNICODE %CSTD% ^
         /I"%PROJ_INCLUDE_DIR%" ^
         /I"%FTXUI_INCLUDE_DIR%" /I"%FTXUI_DIR%\src" ^
         /I"%PLOG_INCLUDE_DIR%" /I"%SCL_INCLUDE_DIR%" /I"%INJECTTOOLS_DIR%" ^
         /Fo"%OBJ_DIR_INJECTOR%\\" /Fe:"%CWD%UiForge.exe" ^
         "%SRC_DIR%\injector\injector.cpp" ^
-        /link %LINK_FTXUI% Advapi32.lib
+        /link %LINK_OPTIMIZE% %LINK_FTXUI% Advapi32.lib
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /EHsc        : Enables standard C++ exception handling.
     @REM %RUNTIME%    : Runtime library setting (must match third-party objects).
+    @REM %OPTIMIZE%   : Optimization level.
     @REM /Fe          : Specifies the output file name for the executable.
     @REM %CSTD%       : Specifies the C++ standard to use.
+    @REM %LINK_OPTIMIZE% : Linker optimization (no incremental link, strip unused, fold identical).
     if errorlevel 1 goto error
 )
 
@@ -242,7 +253,7 @@ if "%BUILD_CORE%"=="true" (
     if not exist "%OBJ_DIR_EXTERNALS%\directxtk" mkdir "%OBJ_DIR_EXTERNALS%\directxtk"
 
     @REM ImGui
-    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %IMGUI_CONFIG_DEFINE% ^
+    cl /nologo /c /EHsc %RUNTIME% %OPTIMIZE% /Zi %CSTD% /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %IMGUI_CONFIG_DEFINE% ^
         /I"%IMGUI_DIR%" /I"%IMGUI_DIR%\misc\cpp" /I"%SRC_DIR%" ^
         /Fo"%OBJ_DIR_EXTERNALS%\imgui\\" ^
         "%IMGUI_DIR%\imgui.cpp" "%IMGUI_DIR%\imgui_draw.cpp" "%IMGUI_DIR%\imgui_tables.cpp" "%IMGUI_DIR%\imgui_widgets.cpp" ^
@@ -251,14 +262,14 @@ if "%BUILD_CORE%"=="true" (
     if errorlevel 1 goto error
 
     @REM MinHook
-    cl /nologo /c %RUNTIME% /Zi ^
+    cl /nologo /c %RUNTIME% %OPTIMIZE% /Zi ^
         /I"%MINHOOK_DIR%\include" /I"%MINHOOK_DIR%\src" /I"%MINHOOK_DIR%\src\hde" ^
         /Fo"%OBJ_DIR_EXTERNALS%\minhook\\" ^
         "%MINHOOK_DIR%\src\buffer.c" "%MINHOOK_DIR%\src\hook.c" "%MINHOOK_DIR%\src\trampoline.c" "%MINHOOK_DIR%\src\hde\hde64.c"
     if errorlevel 1 goto error
 
     @REM kiero
-    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% /DUIFORGE_KIERO_INCLUDE_D3D11=1 /DUIFORGE_KIERO_INCLUDE_D3D12=1 /DUIFORGE_KIERO_USE_MINHOOK=1 ^
+    cl /nologo /c /EHsc %RUNTIME% %OPTIMIZE% /Zi %CSTD% /DUIFORGE_KIERO_INCLUDE_D3D11=1 /DUIFORGE_KIERO_INCLUDE_D3D12=1 /DUIFORGE_KIERO_USE_MINHOOK=1 ^
         /FI"%SRC_DIR%\compat\kiero_compat.h" ^
         /I"%KIERO_DIR%" /I"%EXTERNALS_DIR%" ^
         /Fo"%OBJ_DIR_EXTERNALS%\kiero\\" ^
@@ -266,7 +277,7 @@ if "%BUILD_CORE%"=="true" (
     if errorlevel 1 goto error
 
     @REM DirectXTK
-    cl /nologo /c /EHsc %RUNTIME% /Zi %CSTD% ^
+    cl /nologo /c /EHsc %RUNTIME% %OPTIMIZE% /Zi %CSTD% ^
         /I"%DIRECTXTK_DIR%\Inc" /I"%DIRECTXTK_DIR%\Src" ^
         /Fo"%OBJ_DIR_EXTERNALS%\directxtk\\" ^
         "%DIRECTXTK_DIR%\Src\WICTextureLoader.cpp"
@@ -285,7 +296,7 @@ if "%BUILD_CORE%"=="true" (
 
     echo Building Core
     if not exist %OBJ_DIR_CORE% mkdir %OBJ_DIR_CORE%
-    cl /nologo /bigobj /EHsc /Bt+ /MP %RUNTIME% /Zi /LD /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %IMGUI_CONFIG_DEFINE% %CSTD% ^
+    cl /nologo /bigobj /EHsc /Bt+ /MP %RUNTIME% %OPTIMIZE% /Zi /LD /D %SOL_IMGUI_DEFINES% /D IMGUI_DISABLE_OBSOLETE_KEYIO %IMGUI_CONFIG_DEFINE% %CSTD% ^
         /I"%PROJ_INCLUDE_DIR%" ^
         /I"%IMGUI_DIR%" /I"%IMGUI_DIR%\misc\cpp" ^
         /I"%KIERO_DIR%" /I"%EXTERNALS_DIR%" ^
@@ -296,17 +307,19 @@ if "%BUILD_CORE%"=="true" (
         /Fo"%OBJ_DIR_CORE%\\" /Fe:"%BIN_DIR%\uiforge_core.dll" ^
         %SRC_DIR%\core\*.cpp ^
         "%OBJ_DIR_EXTERNALS%\imgui\*.obj" "%OBJ_DIR_EXTERNALS%\minhook\*.obj" "%OBJ_DIR_EXTERNALS%\kiero\*.obj" "%OBJ_DIR_EXTERNALS%\directxtk\*.obj" ^
-        /link %LINK_GRAPHICS% "%LUAJIT_LIB%"
+        /link %LINK_OPTIMIZE% %LINK_GRAPHICS% "%LUAJIT_LIB%"
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /bigobj      : Enables support for larger object files.
     @REM /EHsc        : Enables standard C++ exception handling.
     @REM %RUNTIME%    : Runtime library setting.
+    @REM %OPTIMIZE%   : Optimization level.
     @REM /Zi          : Generates complete debugging information.
     @REM /LD          : Builds a dynamic-link library (DLL).
     @REM /D           : Defines macro(s) for preprocessing (e.g., IMGUI_NO_DOCKING).
     @REM /Fe          : Specifies the output file name for the DLL.
     @REM %CSTD%       : Specifies the C++ standard to use.
     @REM /link        : Specifies linker options.
+    @REM %LINK_OPTIMIZE% : Linker optimization (no incremental link, strip unused, fold identical).
     if errorlevel 1 goto error
 )
 
@@ -314,7 +327,7 @@ if "%BUILD_CORE%"=="true" (
 if "%BUILD_TESTD3D11%"=="true" (
     echo Building D3D11 Test Window
     if not exist %BIN_DIR% mkdir %BIN_DIR%
-    cl /nologo /EHsc /Fe:%BIN_DIR%\test_d3d11_window.exe %CSTD% %SRC_DIR%\test\test_d3d11_window.cpp /DUNICODE /D_UNICODE /link user32.lib gdi32.lib d3d11.lib dxgi.lib
+    cl /nologo /EHsc %OPTIMIZE% /Fe:%BIN_DIR%\test_d3d11_window.exe %CSTD% %SRC_DIR%\test\test_d3d11_window.cpp /DUNICODE /D_UNICODE /link user32.lib gdi32.lib d3d11.lib dxgi.lib
     @REM /nologo      : Suppresses the compiler version info in output.
     @REM /EHsc        : Enables standard C++ exception handling.
     @REM /Fe          : Specifies the output file name for the executable.
